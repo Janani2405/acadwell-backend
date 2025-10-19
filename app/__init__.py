@@ -3,7 +3,7 @@
 AcadWell Flask Application Factory
 Creates and configures the Flask app with all extensions and blueprints
 """
-
+from flask import request  # Add this import at the very top
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
@@ -31,16 +31,45 @@ def create_app(config_name=None):
     # Initialize configuration
     config_class.init_app(app)
     
-    # Configure CORS
-    CORS(app, 
-         resources={r"/api/*": {
-             "origins": app.config.get('CORS_ORIGINS', '*'),
-             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-             "allow_headers": ["Content-Type", "Authorization"],
-             "expose_headers": ["Content-Type", "Authorization"],
-             "supports_credentials": True,
-             "max_age": 3600
-         }})
+    # ✅ CRITICAL FIX: Configure CORS BEFORE registering blueprints
+    cors_origins = [
+        'https://acadwell-frontend.vercel.app',
+        'https://acadwell.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:5173'
+    ]
+    
+    CORS(app,
+         origins=cors_origins,
+         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+         allow_headers=['Content-Type', 'Authorization'],
+         expose_headers=['Content-Type', 'Authorization'],
+         supports_credentials=True,
+         max_age=3600)
+    
+    # Also enable CORS on every route explicitly
+    @app.after_request
+    def after_request(response):
+        """Add CORS headers to every response"""
+        origin = os.environ.get('HTTP_ORIGIN', request.headers.get('Origin', ''))
+        
+        # Allow the origin if it's in our list
+        if origin in cors_origins:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        elif 'localhost' in origin or '127.0.0.1' in origin:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        else:
+            # Allow Vercel frontend
+            response.headers.add('Access-Control-Allow-Origin', 'https://acadwell-frontend.vercel.app')
+        
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,PATCH')
+        response.headers.add('Access-Control-Expose-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        
+        return response
     
     # Initialize JWT
     jwt = JWTManager(app)
@@ -152,7 +181,7 @@ def _register_blueprints(app):
     from app.api.wellness import wellness_bp
     from app.api.grades import students_bp, teacher_bp
     from app.api.groups import groups_bp
-    from app.api.admin import admin_bp  # ✨ NEW: Admin blueprint
+    from app.api.admin import admin_bp
     
     # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -166,7 +195,7 @@ def _register_blueprints(app):
     app.register_blueprint(students_bp, url_prefix='/api/student')
     app.register_blueprint(teacher_bp, url_prefix='/api/teacher')
     app.register_blueprint(groups_bp, url_prefix='/api/groups')
-    app.register_blueprint(admin_bp, url_prefix='/api/admin')  # ✨ NEW: Admin routes
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
     
     print("✅ All blueprints registered successfully")
 
@@ -247,7 +276,6 @@ def _register_utility_routes(app):
             health_status['database_error'] = str(e)
             health_status['status'] = 'unhealthy'
         
-        # Determine HTTP status code
         status_code = 200 if health_status['status'] == 'healthy' else 503
         
         return jsonify(health_status), status_code
@@ -264,12 +292,15 @@ def _register_utility_routes(app):
     
     @app.route('/api/config')
     def get_config_info():
-        """Get non-sensitive configuration info (for debugging)"""
+        """Get non-sensitive configuration info"""
         return jsonify({
             'environment': os.getenv('FLASK_ENV', 'development'),
             'debug': app.debug,
             'database': 'connected' if app.db is not None else 'disconnected',
             'email_enabled': app.config.get('EMAIL_ENABLED', False),
             'frontend_url': app.config.get('FRONTEND_URL', 'not set'),
-            'cors_origins': app.config.get('CORS_ORIGINS', [])
+            'cors_origins': [
+                'https://acadwell-frontend.vercel.app',
+                'https://acadwell.vercel.app'
+            ]
         })
