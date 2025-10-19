@@ -1,1 +1,1 @@
-web: gunicorn -w 1 -b 0.0.0.0:$PORT --timeout 60 "app:create_app()"
+web: gunicorn -w 1 -b 0.0.0.0:$PORT --timeout 120 "wsgi:app"
