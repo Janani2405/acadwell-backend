@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Answer Was Accepted!</title>
+    <style>
+        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+        body { margin: 0; padding: 0; width: 100% !important; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f3f4f6; }
+        .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+        .email-header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 40px 20px; text-align: center; }
+        .email-header h1 { color: #ffffff; margin: 10px 0 0 0; font-size: 28px; }
+        .email-content { padding: 40px 30px; color: #374151; line-height: 1.6; }
+        .celebration { font-size: 64px; text-align: center; margin: 20px 0; }
+        .points-badge { background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #ffffff; padding: 20px; border-radius: 12px; text-align: center; margin: 25px 0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .points-badge .points { font-size: 36px; font-weight: bold; margin: 10px 0; }
+        .question-box { background-color: #eff6ff; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #3b82f6; }
+        .question-box h3 { color: #1e40af; margin-top: 0; font-size: 16px; }
+        .question-title { font-size: 18px; color: #1f2937; font-weight: 600; margin: 10px 0; }
+        .action-button { display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff !important; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 20px 0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .action-button:hover { transform: translateY(-2px); box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15); }
+        .achievement-card { background-color: #fef3c7; padding: 20px; border-radius: 8px; margin: 25px 0; text-align: center; }
+        .stats-row { display: table; width: 100%; margin: 20px 0; }
+        .stat-item { display: table-cell; text-align: center; padding: 15px; }
+        .stat-number { font-size: 28px; font-weight: bold; color: #10b981; }
+        .stat-label { font-size: 12px; color: #6b7280; text-transform: uppercase; }
+        .email-footer { background-color: #f9fafb; padding: 30px; text-align: center; color: #6b7280; font-size: 12px; border-top: 1px solid #e5e7eb; }
+        @media only screen and (max-width: 600px) {
+            .email-container { width: 100% !important; }
+            .email-content { padding: 20px !important; }
+            .stat-item { display: block; margin: 10px 0; }
+        }
+    </style>
+</head>
+<body>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" class="email-container" cellspacing="0" cellpadding="0" border="0" width="600">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td class="email-header">
+                            <div style="font-size: 48px;">🎉</div>
+                            <h1>Your Answer Was Accepted!</h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td class="email-content">
+                            
+                            <!-- Celebration -->
+                            <div class="celebration">🌟 ✨ 🎊</div>
+                            
+                            <p style="font-size: 18px; color: #1f2937; text-align: center;">
+                                <strong>Congratulations, {{ answerer_name }}!</strong>
+                            </p>
+                            
+                            <p style="font-size: 16px; text-align: center; color: #6b7280;">
+                                Your answer has been marked as the best solution! You're making a real difference in the AcadWell community.
+                            </p>
+                            
+                            <!-- Points Badge -->
+                            <div class="points-badge">
+                                <div style="font-size: 16px; opacity: 0.9;">You earned</div>
+                                <div class="points">+{{ points_earned }} Points</div>
+                                <div style="font-size: 14px; opacity: 0.9;">Keep up the great work!</div>
+                            </div>
+                            
+                            <!-- Question Box -->
+                            <div class="question-box">
+                                <h3>Question Answered:</h3>
+                                <div class="question-title">"{{ question_title }}"</div>
+                            </div>
+                            
+                            <!-- Achievement Card -->
+                            <div class="achievement-card">
+                                <div style="font-size: 32px; margin-bottom: 10px;">🏆</div>
+                                <p style="margin: 0; color: #92400e; font-weight: 600;">
+                                    You're helping fellow students succeed!
+                                </p>
+                            </div>
+                            
+                            <!-- Action Button -->
+                            <div style="text-align: center; margin: 30px 0;">
+                                <a href="{{ post_link }}" class="action-button">
+                                    View Your Answer
+                                </a>
+                            </div>
+                            
+                            <!-- Stats (Optional - you can populate these dynamically) -->
+                            <div style="background-color: #f9fafb; padding: 20px; border-radius: 8px; margin: 25px 0;">
+                                <h3 style="text-align: center; color: #1f2937; font-size: 16px; margin-top: 0;">Your Community Impact</h3>
+                                <table role="presentation" class="stats-row" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                    <tr>
+                                        <td class="stat-item">
+                                            <div class="stat-number">{{ accepted_answers | default(1) }}</div>
+                                            <div class="stat-label">Accepted Answers</div>
+                                        </td>
+                                        <td class="stat-item">
+                                            <div class="stat-number" style="color: #f59e0b;">{{ total_points | default(points_earned) }}</div>
+                                            <div class="stat-label">Total Points</div>
+                                        </td>
+                                        <td class="stat-item">
+                                            <div class="stat-number" style="color: #3b82f6;">{{ helped_students | default(1) }}</div>
+                                            <div class="stat-label">Students Helped</div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                            
+                            <!-- Encouragement -->
+                            <div style="background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); padding: 20px; border-radius: 8px; margin: 25px 0; text-align: center;">
+                                <p style="margin: 0; color: #1e40af; font-size: 15px;">
+                                    💡 <strong>Keep it up!</strong> Every answer you provide helps build a stronger learning community.
+                                </p>
+                            </div>
+                            
+                            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+                            
+                            <p style="font-size: 14px; color: #6b7280; text-align: center;">
+                                Thank you for being an active and helpful member of the AcadWell community!
+                            </p>
+                            
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td class="email-footer">
+                            <p style="margin: 0 0 10px 0;">
+                                <strong>AcadWell Community</strong>
+                            </p>
+                            <p style="margin: 0 0 10px 0;">
+                                Empowering students through shared knowledge
+                            </p>
+                            <p style="margin: 10px 0;">
+                                <a href="http://localhost:3000/community" style="color: #6b7280; text-decoration: underline;">Browse Community</a> | 
+                                <a href="http://localhost:3000/profile" style="color: #6b7280; text-decoration: underline;">View Your Profile</a> | 
+                                <a href="http://localhost:3000/settings/notifications" style="color: #6b7280; text-decoration: underline;">Notification Settings</a>
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #9ca3af;">
+                                © {{ current_year }} AcadWell. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
