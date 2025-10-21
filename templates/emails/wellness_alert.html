@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wellness Alert - {{ student_name }}</title>
+    <style>
+        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+        body { margin: 0; padding: 0; width: 100% !important; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f3f4f6; }
+        .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+        .email-header { padding: 30px 20px; text-align: center; color: #ffffff; }
+        .header-critical { background-color: #dc2626; }
+        .header-orange { background-color: #ea580c; }
+        .email-header h1 { color: #ffffff; margin: 10px 0 0 0; font-size: 24px; }
+        .email-content { padding: 40px 30px; color: #374151; line-height: 1.6; }
+        .alert-box { padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid; }
+        .alert-critical { background-color: #fee2e2; border-left-color: #dc2626; }
+        .alert-orange { background-color: #fed7aa; border-left-color: #ea580c; }
+        .student-info { background-color: #f9fafb; padding: 15px; border-radius: 6px; margin: 20px 0; }
+        .student-info strong { color: #1f2937; }
+        .preview-box { background-color: #fef3c7; padding: 15px; border-radius: 6px; margin: 20px 0; font-style: italic; color: #92400e; border-left: 3px solid #f59e0b; }
+        .action-button { display: inline-block; padding: 14px 32px; background-color: #dc2626; color: #ffffff !important; text-decoration: none; border-radius: 6px; font-weight: 600; margin: 20px 0; }
+        .action-button:hover { background-color: #b91c1c; }
+        .recommendations { background-color: #eff6ff; padding: 20px; border-radius: 6px; margin: 20px 0; }
+        .recommendations ul { margin: 10px 0; padding-left: 20px; }
+        .recommendations li { margin: 8px 0; }
+        .email-footer { background-color: #f9fafb; padding: 30px; text-align: center; color: #6b7280; font-size: 12px; border-top: 1px solid #e5e7eb; }
+        @media only screen and (max-width: 600px) {
+            .email-container { width: 100% !important; }
+            .email-content { padding: 20px !important; }
+        }
+    </style>
+</head>
+<body>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" class="email-container" cellspacing="0" cellpadding="0" border="0" width="600">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td class="email-header {% if level == 'red' %}header-critical{% else %}header-orange{% endif %}">
+                            <div style="font-size: 48px;">🚨</div>
+                            <h1>{{ level_text }} Wellness Alert</h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td class="email-content">
+                            
+                            <div class="alert-box {% if level == 'red' %}alert-critical{% else %}alert-orange{% endif %}">
+                                <strong style="font-size: 16px;">
+                                    {% if level == 'red' %}
+                                    ⚠️ IMMEDIATE ATTENTION REQUIRED
+                                    {% else %}
+                                    ⚠️ HIGH CONCERN - Action Needed Within 24 Hours
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            
+                            <p style="font-size: 16px; color: #1f2937;">
+                                Our wellness monitoring system has detected concerning indicators for one of your students.
+                            </p>
+                            
+                            <!-- Student Information -->
+                            <div class="student-info">
+                                <p style="margin: 0 0 8px 0;"><strong>Student:</strong> {{ student_name }}</p>
+                                <p style="margin: 0 0 8px 0;"><strong>Alert Level:</strong> <span style="color: {{ level_color }}; font-weight: bold;">{{ level_text }}</span></p>
+                                <p style="margin: 0;"><strong>Time:</strong> {{ timestamp }}</p>
+                            </div>
+                            
+                            <!-- Preview of Content -->
+                            {% if preview_text %}
+                            <h3 style="color: #1f2937; font-size: 16px; margin: 25px 0 10px 0;">Content Preview:</h3>
+                            <div class="preview-box">
+                                "{{ preview_text }}"
+                            </div>
+                            {% endif %}
+                            
+                            <!-- Recommended Actions -->
+                            <div class="recommendations">
+                                <h3 style="color: #1e40af; margin-top: 0; font-size: 16px;">📋 Recommended Actions:</h3>
+                                <ul style="color: #1e40af;">
+                                    {% if level == 'red' %}
+                                    <li><strong>Contact student immediately</strong> via phone or in-person meeting</li>
+                                    <li><strong>Follow institutional crisis protocol</strong></li>
+                                    <li><strong>Do not leave student alone</strong> if showing signs of self-harm</li>
+                                    <li><strong>Connect with campus counseling services</strong></li>
+                                    {% else %}
+                                    <li><strong>Schedule a check-in</strong> within the next 24-48 hours</li>
+                                    <li><strong>Provide mental health resources</strong> and counseling information</li>
+                                    <li><strong>Monitor for changes</strong> in behavior or engagement</li>
+                                    <li><strong>Consider reaching out</strong> via email or messaging first</li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                            
+                            <!-- Action Button -->
+                            {% if link %}
+                            <div style="text-align: center; margin: 30px 0;">
+                                <a href="{{ link }}" class="action-button">
+                                    View Detailed Wellness Report
+                                </a>
+                            </div>
+                            {% endif %}
+                            
+                            <!-- Crisis Resources -->
+                            {% if level == 'red' %}
+                            <div style="background-color: #fef2f2; padding: 20px; border-radius: 6px; border-left: 4px solid #dc2626; margin: 25px 0;">
+                                <h3 style="color: #991b1b; margin-top: 0; font-size: 16px;">🆘 Crisis Resources:</h3>
+                                <p style="margin: 8px 0; color: #991b1b;"><strong>National Suicide Prevention Lifeline:</strong> 988</p>
+                                <p style="margin: 8px 0; color: #991b1b;"><strong>Crisis Text Line:</strong> Text HOME to 741741</p>
+                                <p style="margin: 8px 0; color: #991b1b;"><strong>Campus Emergency:</strong> Contact campus police/security</p>
+                            </div>
+                            {% endif %}
+                            
+                            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+                            
+                            <p style="font-size: 14px; color: #6b7280;">
+                                <strong>Note:</strong> This alert was generated by our AI-powered wellness monitoring system. 
+                                Please use your professional judgment when taking action. All student data is confidential and 
+                                should be handled in accordance with institutional policies.
+                            </p>
+                            
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td class="email-footer">
+                            <p style="margin: 0 0 10px 0;">
+                                <strong>AcadWell Wellness Monitoring System</strong>
+                            </p>
+                            <p style="margin: 10px 0;">
+                                <a href="http://localhost:3000/teacher/wellness" style="color: #6b7280; text-decoration: underline;">View Wellness Dashboard</a> | 
+                                <a href="http://localhost:3000/settings/notifications" style="color: #6b7280; text-decoration: underline;">Notification Settings</a>
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #9ca3af;">
+                                © {{ current_year }} AcadWell. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!-- FILE 3: backend/templates/emails/registration_confirmation.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to AcadWell!</title>
+    <style>
+        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+        body { margin: 0; padding: 0; width: 100% !important; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f3f4f6; }
+        .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+        .email-header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 40px 20px; text-align: center; }
+        .email-header h1 { color: #ffffff; margin: 10px 0 0 0; font-size: 28px; }
+        .email-content { padding: 40px 30px; color: #374151; line-height: 1.6; }
+        .email-content p { margin: 15px 0; }
+        .action-button { display: inline-block; padding: 16px 40px; background-color: #10b981; color: #ffffff !important; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 25px 0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .action-button:hover { background-color: #059669; }
+        .feature-box { background-color: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981; }
+        .feature-box h3 { color: #065f46; margin-top: 0; font-size: 16px; }
+        .feature-box ul { margin: 10px 0; padding-left: 20px; color: #047857; }
+        .feature-box li { margin: 8px 0; }
+        .account-info { background-color: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0; }
+        .account-info p { margin: 8px 0; font-size: 14px; }
+        .email-footer { background-color: #f9fafb; padding: 30px; text-align: center; color: #6b7280; font-size: 12px; border-top: 1px solid #e5e7eb; }
+        .email-footer p { margin: 8px 0; }
+        @media only screen and (max-width: 600px) {
+            .email-container { width: 100% !important; }
+            .email-content { padding: 20px !important; }
+        }
+    </style>
+</head>
+<body>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" class="email-container" cellspacing="0" cellpadding="0" border="0" width="600">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td class="email-header">
+                            <div style="font-size: 48px; margin-bottom: 15px;">🎉</div>
+                            <h1>Welcome to AcadWell!</h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td class="email-content">
+                            <p style="font-size: 18px; color: #1f2937; text-align: center;">
+                                <strong>Hi {{ user_name }},</strong>
+                            </p>
+                            
+                            <p style="text-align: center; color: #6b7280;">Your account has been successfully verified and activated!</p>
+                            
+                            <!-- Account Info -->
+                            <div class="account-info">
+                                <p><strong>Account Type:</strong> <span style="color: #10b981; font-weight: 600;">{{ role }}</span></p>
+                                <p><strong>Email:</strong> {{ email }}</p>
+                                <p><strong>Registration Date:</strong> {{ registration_date }}</p>
+                            </div>
+                            
+                            <!-- Features Box -->
+                            <div class="feature-box">
+                                <h3>✨ What You Can Do Now:</h3>
+                                <ul style="list-style-type: none; padding-left: 0;">
+                                    <li>✓ Log in to your dashboard</li>
+                                    <li>✓ Complete and customize your profile</li>
+                                    <li>✓ Track your academic wellness</li>
+                                    <li>✓ Connect with peers in the community</li>
+                                    <li>✓ Access all AcadWell features</li>
+                                </ul>
+                            </div>
+                            
+                            <!-- Action Button -->
+                            <div style="text-align: center; margin: 30px 0;">
+                                <a href="http://localhost:3000/login" class="action-button">Go to Your Dashboard</a>
+                            </div>
+                            
+                            <!-- Getting Started Tips -->
+                            <div class="feature-box">
+                                <h3>🚀 Getting Started Tips:</h3>
+                                <ul style="list-style-type: none; padding-left: 0;">
+                                    <li>1. Complete your profile with a photo and bio</li>
+                                    <li>2. Explore the community and ask questions</li>
+                                    <li>3. Start tracking your wellness journey</li>
+                                    <li>4. Connect with mentors and peers</li>
+                                </ul>
+                            </div>
+                            
+                            <p style="color: #6b7280; font-size: 14px; margin-top: 25px; text-align: center;">
+                                <strong>Questions?</strong> Check out our help center or contact support at acadwellteam@gmail.com
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td class="email-footer">
+                            <p style="margin: 0 0 5px 0;"><strong>AcadWell</strong></p>
+                            <p style="margin: 0 0 10px 0;">Empowering students through shared knowledge and wellness</p>
+                            <p style="margin: 15px 0 0 0; color: #9ca3af;">© 2025 AcadWell. All rights reserved.</p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title | default('AcadWell Notification') }}</title>
+    <style>
+        /* Reset styles */
+        body, table, td, a {
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        table, td {
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+        }
+        img {
+            -ms-interpolation-mode: bicubic;
+            border: 0;
+            height: auto;
+            line-height: 100%;
+            outline: none;
+            text-decoration: none;
+        }
+        
+        /* Base styles */
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100% !important;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f3f4f6;
+        }
+        
+        /* Container */
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+        }
+        
+        /* Header */
+        .email-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .email-header h1 {
+            color: #ffffff;
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .email-header .logo {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        /* Content */
+        .email-content {
+            padding: 40px 30px;
+            color: #374151;
+            line-height: 1.6;
+        }
+        .email-content h2 {
+            color: #1f2937;
+            font-size: 20px;
+            margin-top: 0;
+        }
+        .email-content p {
+            margin: 15px 0;
+        }
+        
+        /* Button */
+        .email-button {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: #667eea;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 20px 0;
+        }
+        .email-button:hover {
+            background-color: #5a67d8;
+        }
+        
+        /* Alert boxes */
+        .alert-box {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid;
+        }
+        .alert-critical {
+            background-color: #fee2e2;
+            border-left-color: #dc2626;
+            color: #991b1b;
+        }
+        .alert-warning {
+            background-color: #fed7aa;
+            border-left-color: #ea580c;
+            color: #9a3412;
+        }
+        .alert-info {
+            background-color: #dbeafe;
+            border-left-color: #3b82f6;
+            color: #1e40af;
+        }
+        .alert-success {
+            background-color: #d1fae5;
+            border-left-color: #10b981;
+            color: #065f46;
+        }
+        
+        /* Footer */
+        .email-footer {
+            background-color: #f9fafb;
+            padding: 30px;
+            text-align: center;
+            color: #6b7280;
+            font-size: 12px;
+            border-top: 1px solid #e5e7eb;
+        }
+        .email-footer a {
+            color: #6b7280;
+            text-decoration: underline;
+        }
+        
+        /* Responsive */
+        @media only screen and (max-width: 600px) {
+            .email-container {
+                width: 100% !important;
+            }
+            .email-content {
+                padding: 20px !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <!-- Email Container -->
+                <table role="presentation" class="email-container" cellspacing="0" cellpadding="0" border="0" width="600">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td class="email-header">
+                            <div class="logo">🎓</div>
+                            <h1>{{ header_title | default('AcadWell') }}</h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td class="email-content">
+                            {% block content %}
+                            <h2>Hello!</h2>
+                            <p>This is a notification from AcadWell.</p>
+                            {% endblock %}
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td class="email-footer">
+                            <p style="margin: 0 0 10px 0;">
+                                <strong>AcadWell</strong> - Academic Wellness Platform
+                            </p>
+                            <p style="margin: 0 0 10px 0;">
+                                Supporting student success and wellbeing
+                            </p>
+                            <p style="margin: 10px 0;">
+                                <a href="http://localhost:3000/settings/notifications">Notification Preferences</a> | 
+                                <a href="http://localhost:3000/help">Help Center</a>
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #9ca3af;">
+                                © {{ current_year | default('2025') }} AcadWell. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

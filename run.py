@@ -9,11 +9,11 @@ from app.extensions import socketio
 import os
 import socket
 #for enbaling email 
-# from dotenv import load_dotenv
-# import os
+from dotenv import load_dotenv
+import os
 
-# # Load environment variables from .env.development
-# load_dotenv('.env.development')
+# Load environment variables from .env.development
+load_dotenv('.env.development')
 
 # from app import create_app
 # from app.extensions import socketio

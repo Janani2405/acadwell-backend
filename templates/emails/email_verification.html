@@ -1,0 +1,87 @@
+<!-- FILE 1: backend/templates/emails/email_verification.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Your AcadWell Account</title>
+    <style>
+        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+        body { margin: 0; padding: 0; width: 100% !important; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f3f4f6; }
+        .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+        .email-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; }
+        .email-header h1 { color: #ffffff; margin: 10px 0 0 0; font-size: 28px; }
+        .email-content { padding: 40px 30px; color: #374151; line-height: 1.6; }
+        .email-content p { margin: 15px 0; }
+        .verification-button { display: inline-block; padding: 16px 40px; background-color: #667eea; color: #ffffff !important; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 25px 0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .verification-button:hover { background-color: #5a67d8; }
+        .code-section { background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea; }
+        .code-section code { font-family: 'Courier New', monospace; font-size: 14px; color: #1f2937; word-break: break-all; }
+        .warning-box { background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b; color: #92400e; }
+        .warning-box strong { color: #b45309; }
+        .email-footer { background-color: #f9fafb; padding: 30px; text-align: center; color: #6b7280; font-size: 12px; border-top: 1px solid #e5e7eb; }
+        .email-footer p { margin: 8px 0; }
+        @media only screen and (max-width: 600px) {
+            .email-container { width: 100% !important; }
+            .email-content { padding: 20px !important; }
+        }
+    </style>
+</head>
+<body>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" class="email-container" cellspacing="0" cellpadding="0" border="0" width="600">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td class="email-header">
+                            <div style="font-size: 48px; margin-bottom: 15px;">✉️</div>
+                            <h1>Verify Your Email</h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td class="email-content">
+                            <p style="font-size: 16px; color: #1f2937;">Hi {{ user_name }},</p>
+                            
+                            <p>Welcome to AcadWell! We're excited to have you join our community. To complete your registration and start using all features, please verify your email address.</p>
+                            
+                            <div style="text-align: center; margin: 30px 0;">
+                                <a href="{{ verification_link }}" class="verification-button">Verify My Email</a>
+                            </div>
+                            
+                            <p style="color: #6b7280; font-size: 14px; text-align: center;">Or copy and paste this link in your browser:</p>
+                            <div class="code-section">
+                                <code>{{ verification_link }}</code>
+                            </div>
+                            
+                            <div class="warning-box">
+                                <strong>⏰ Link Expires In:</strong> 24 hours
+                                <p style="margin: 10px 0 0 0; font-size: 14px;">Make sure to verify your email within this time period.</p>
+                            </div>
+                            
+                            <p style="color: #6b7280; font-size: 14px; margin-top: 25px;">
+                                <strong>Didn't create this account?</strong> If you didn't sign up for AcadWell, please ignore this email or contact us immediately.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td class="email-footer">
+                            <p style="margin: 0 0 5px 0;"><strong>AcadWell</strong></p>
+                            <p style="margin: 0 0 10px 0;">Academic Wellness Platform</p>
+                            <p style="margin: 15px 0 0 0; color: #9ca3af;">© 2025 AcadWell. All rights reserved.</p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
