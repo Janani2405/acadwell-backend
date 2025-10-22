@@ -43,7 +43,7 @@ def my_grades():
         result = []
         
         for g in grades:
-            result.append({
+            grade_data = {
                 "subject": g.get("subject"),
                 "marks": g.get("marks"),
                 "teacherName": g.get("teacherName"),
@@ -52,8 +52,20 @@ def my_grades():
                 "date": g.get("date"),
                 "semester": g.get("semester"),
                 "department": g.get("department"),
-                "testType": g.get("testType")
-            })
+                "testType": g.get("testType"),
+                "uploadId": g.get("uploadId")  # For grouping grades by upload
+            }
+            
+            # Add CAT-specific fields
+            if g.get("totalMarks") is not None:
+                grade_data["totalMarks"] = g.get("totalMarks")
+                grade_data["marksObtained"] = g.get("marks")
+            
+            # Add semester GPA field
+            if g.get("gpa") is not None:
+                grade_data["gpa"] = g.get("gpa")
+            
+            result.append(grade_data)
         
         return jsonify({"success": True, "grades": result}), 200
     
@@ -68,9 +80,10 @@ def my_grades():
 def upload_grades():
     """
     Upload grades from CSV or Excel file
-    Expects multipart/form-data:
-      - file: .csv or .xlsx (with rollno, subject, marks columns)
-      - date, semester, department, testType (as form fields)
+    Supports three formats:
+    1. CAT: RegNo, Subject, MarksObtained, TotalMarks
+    2. Semester: RegNo, Semester, GPA
+    3. Regular: RegNo, Subject, Marks
     """
     try:
         teacher_id = get_jwt_identity()
@@ -115,78 +128,200 @@ def upload_grades():
         # Normalize column names for robust matching
         df.columns = [str(c).strip().lower() for c in df.columns]
 
-        # Tolerant column detection
-        roll_col = _find_column(df.columns, ["roll", "reg", "regno", "reg_number", "registration"])
-        subject_col = _find_column(df.columns, ["subject", "sub"])
-        marks_col = _find_column(df.columns, ["mark", "score", "marks", "marks_obtained"])
+        # Detect upload type and process accordingly
+        is_cat_format = False
+        is_semester_format = False
+        
+        # Check for CAT format (has totalMarks column)
+        # CAT format includes: CAT-1, CAT-2, CAT-3, Mid-Semester, Internal
+        total_marks_col = _find_column(df.columns, ["total", "totalmarks", "total_marks", "outof", "out_of", "maximum"])
+        if total_marks_col and any(test in test_type for test in ["CAT", "Mid-Semester", "Internal"]):
+            is_cat_format = True
+        
+        # Check for Semester GPA format
+        gpa_col = _find_column(df.columns, ["gpa", "grade", "gradepoint", "grade_point"])
+        if gpa_col and any(sem in test_type for sem in ["Semester", "semester"]):
+            is_semester_format = True
 
-        missing = []
+        # Common columns
+        roll_col = _find_column(df.columns, ["roll", "reg", "regno", "reg_number", "registration", "registerno"])
+        
         if not roll_col:
-            missing.append("rollno/regno")
-        if not subject_col:
-            missing.append("subject")
-        if not marks_col:
-            missing.append("marks")
-
-        if missing:
-            return jsonify({"success": False, "message": f"Missing columns: {', '.join(missing)}"}), 400
+            return jsonify({"success": False, "message": "Missing column: Registration Number (RegNo/Roll)"}), 400
 
         uploaded_time = datetime.datetime.utcnow()
+        upload_id = str(datetime.datetime.utcnow().timestamp())  # Unique ID for this upload batch
         inserted = 0
 
-        # Process each row
-        for idx, row in df.iterrows():
-            raw_roll = row.get(roll_col)
-            raw_subject = row.get(subject_col)
-            raw_marks = row.get(marks_col)
+        # Process based on format type
+        if is_semester_format:
+            # SEMESTER GPA FORMAT
+            print(f"Processing Semester GPA format for {test_type}")
+            
+            if not gpa_col:
+                return jsonify({"success": False, "message": "GPA column not found for semester upload"}), 400
 
-            # Skip incomplete rows
-            if pd.isna(raw_roll) or pd.isna(raw_subject) or pd.isna(raw_marks):
-                continue
+            for idx, row in df.iterrows():
+                raw_roll = row.get(roll_col)
+                raw_gpa = row.get(gpa_col)
 
-            rollno = str(raw_roll).strip()
-            subject = str(raw_subject).strip()
-            marks_val = raw_marks
+                if pd.isna(raw_roll) or pd.isna(raw_gpa):
+                    continue
 
-            # Try to convert marks to numeric
-            try:
-                if isinstance(marks_val, str):
-                    marks_val = marks_val.strip()
-                    if marks_val == "":
-                        continue
-                    marks_numeric = float(marks_val) if any(ch.isdigit() for ch in marks_val) else marks_val
-                else:
-                    marks_numeric = float(marks_val)
-            except Exception:
-                marks_numeric = raw_marks
+                rollno = str(raw_roll).strip()
+                
+                # Convert GPA to float
+                try:
+                    gpa_value = float(str(raw_gpa).strip())
+                except:
+                    continue
 
-            # Find student by regNumber
-            student = current_app.db.users.find_one({"regNumber": rollno, "role": "student"})
-            if not student:
-                # Skip unknown roll numbers
-                continue
+                # Find student
+                student = current_app.db.users.find_one({"regNumber": rollno, "role": "student"})
+                if not student:
+                    continue
 
-            # Insert grade document
-            current_app.db.grades.insert_one({
-                "studentId": student["user_id"],
-                "regNumber": rollno,
-                "subject": subject,
-                "marks": marks_numeric,
-                "teacherId": teacher_id,
-                "teacherName": teacher_name,
-                "uploadedAt": uploaded_time,
-                "fileName": filename,
-                "date": date,
-                "semester": semester,
-                "department": department,
-                "testType": test_type
-            })
-            inserted += 1
+                # Insert semester GPA record
+                current_app.db.grades.insert_one({
+                    "studentId": student["user_id"],
+                    "regNumber": rollno,
+                    "subject": f"Semester {semester} GPA",  # Virtual subject name
+                    "gpa": gpa_value,
+                    "marks": gpa_value,  # Store GPA in marks field too for compatibility
+                    "teacherId": teacher_id,
+                    "teacherName": teacher_name,
+                    "uploadedAt": uploaded_time,
+                    "uploadId": upload_id,
+                    "fileName": filename,
+                    "date": date,
+                    "semester": semester,
+                    "department": department,
+                    "testType": test_type,
+                    "gradeType": "semester_gpa"
+                })
+                inserted += 1
+
+        elif is_cat_format:
+            # CAT FORMAT WITH TOTAL MARKS
+            print(f"Processing CAT format with total marks for {test_type}")
+            
+            subject_col = _find_column(df.columns, ["subject", "sub"])
+            marks_col = _find_column(df.columns, ["mark", "score", "marks", "obtained", "marksobtained", "marks_obtained"])
+            
+            if not subject_col:
+                return jsonify({"success": False, "message": "Missing column: Subject"}), 400
+            if not marks_col:
+                return jsonify({"success": False, "message": "Missing column: Marks Obtained"}), 400
+            if not total_marks_col:
+                return jsonify({"success": False, "message": "Missing column: Total Marks"}), 400
+
+            for idx, row in df.iterrows():
+                raw_roll = row.get(roll_col)
+                raw_subject = row.get(subject_col)
+                raw_marks = row.get(marks_col)
+                raw_total = row.get(total_marks_col)
+
+                if pd.isna(raw_roll) or pd.isna(raw_subject) or pd.isna(raw_marks) or pd.isna(raw_total):
+                    continue
+
+                rollno = str(raw_roll).strip()
+                subject = str(raw_subject).strip()
+                
+                # Convert marks to numeric
+                try:
+                    marks_obtained = float(str(raw_marks).strip())
+                    total_marks = float(str(raw_total).strip())
+                except:
+                    continue
+
+                # Find student
+                student = current_app.db.users.find_one({"regNumber": rollno, "role": "student"})
+                if not student:
+                    continue
+
+                # Insert CAT grade with total marks
+                current_app.db.grades.insert_one({
+                    "studentId": student["user_id"],
+                    "regNumber": rollno,
+                    "subject": subject,
+                    "marks": marks_obtained,
+                    "totalMarks": total_marks,
+                    "teacherId": teacher_id,
+                    "teacherName": teacher_name,
+                    "uploadedAt": uploaded_time,
+                    "uploadId": upload_id,
+                    "fileName": filename,
+                    "date": date,
+                    "semester": semester,
+                    "department": department,
+                    "testType": test_type,
+                    "gradeType": "cat_with_total"
+                })
+                inserted += 1
+
+        else:
+            # REGULAR FORMAT (backward compatibility)
+            print(f"Processing regular format for {test_type}")
+            
+            subject_col = _find_column(df.columns, ["subject", "sub"])
+            marks_col = _find_column(df.columns, ["mark", "score", "marks", "marks_obtained"])
+
+            if not subject_col:
+                return jsonify({"success": False, "message": "Missing column: Subject"}), 400
+            if not marks_col:
+                return jsonify({"success": False, "message": "Missing column: Marks"}), 400
+
+            for idx, row in df.iterrows():
+                raw_roll = row.get(roll_col)
+                raw_subject = row.get(subject_col)
+                raw_marks = row.get(marks_col)
+
+                if pd.isna(raw_roll) or pd.isna(raw_subject) or pd.isna(raw_marks):
+                    continue
+
+                rollno = str(raw_roll).strip()
+                subject = str(raw_subject).strip()
+
+                # Convert marks to numeric
+                try:
+                    marks_numeric = float(str(raw_marks).strip())
+                except:
+                    continue
+
+                # Find student
+                student = current_app.db.users.find_one({"regNumber": rollno, "role": "student"})
+                if not student:
+                    continue
+
+                # Insert regular grade
+                current_app.db.grades.insert_one({
+                    "studentId": student["user_id"],
+                    "regNumber": rollno,
+                    "subject": subject,
+                    "marks": marks_numeric,
+                    "teacherId": teacher_id,
+                    "teacherName": teacher_name,
+                    "uploadedAt": uploaded_time,
+                    "uploadId": upload_id,
+                    "fileName": filename,
+                    "date": date,
+                    "semester": semester,
+                    "department": department,
+                    "testType": test_type,
+                    "gradeType": "regular"
+                })
+                inserted += 1
 
         if inserted == 0:
             return jsonify({"success": False, "message": "No valid grades were found in the file"}), 400
 
-        return jsonify({"success": True, "message": f"{inserted} grades uploaded successfully"}), 200
+        format_type = "Semester GPA" if is_semester_format else ("CAT with Total Marks" if is_cat_format else "Regular")
+        return jsonify({
+            "success": True, 
+            "message": f"{inserted} grades uploaded successfully",
+            "format": format_type,
+            "uploadId": upload_id
+        }), 200
 
     except Exception as e:
         print(f"Error uploading grades: {e}")
@@ -201,45 +336,149 @@ def my_uploads():
     try:
         teacher_id = get_jwt_identity()
         
-        # Fetch all uploads by this teacher
+        # Fetch all uploads by this teacher grouped by uploadId
         docs = list(current_app.db.grades.find({"teacherId": teacher_id}))
         
-        # Group by file metadata to show concise history
+        # Group by uploadId to get unique uploads
         history_map = {}
         for g in docs:
-            key = (
-                g.get("fileName", "Unknown File"),
-                g.get("date"),
-                g.get("semester"),
-                g.get("department"),
-                g.get("testType")
-            )
+            upload_id = g.get("uploadId", g.get("fileName"))  # Fallback to fileName for old records
             
-            # Keep latest uploadedAt for each unique file
-            existing = history_map.get(key)
-            if not existing or (g.get("uploadedAt") and g.get("uploadedAt") > existing["uploadedAt"]):
-                history_map[key] = {
-                    "fileName": key[0],
-                    "date": key[1],
-                    "semester": key[2],
-                    "department": key[3],
-                    "testType": key[4],
-                    "uploadedAt": g.get("uploadedAt")
+            if upload_id not in history_map:
+                history_map[upload_id] = {
+                    "uploadId": upload_id,
+                    "fileName": g.get("fileName", "Unknown File"),
+                    "date": g.get("date"),
+                    "semester": g.get("semester"),
+                    "department": g.get("department"),
+                    "testType": g.get("testType"),
+                    "uploadedAt": g.get("uploadedAt"),
+                    "gradeCount": 0
                 }
+            
+            history_map[upload_id]["gradeCount"] += 1
+            
+            # Keep the latest uploadedAt
+            if g.get("uploadedAt") and (not history_map[upload_id]["uploadedAt"] or 
+                                        g.get("uploadedAt") > history_map[upload_id]["uploadedAt"]):
+                history_map[upload_id]["uploadedAt"] = g.get("uploadedAt")
 
         result = []
         for v in history_map.values():
             result.append({
+                "uploadId": v["uploadId"],
                 "fileName": v["fileName"],
                 "date": v["date"],
                 "semester": v["semester"],
                 "department": v["department"],
                 "testType": v["testType"],
-                "uploadedAt": v["uploadedAt"].isoformat() if v["uploadedAt"] else None
+                "uploadedAt": v["uploadedAt"].isoformat() if v["uploadedAt"] else None,
+                "gradeCount": v["gradeCount"]
             })
+
+        # Sort by uploadedAt descending
+        result.sort(key=lambda x: x["uploadedAt"] if x["uploadedAt"] else "", reverse=True)
 
         return jsonify({"success": True, "files": result}), 200
     
     except Exception as e:
         print(f"Error fetching upload history: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ================= TEACHER: delete upload =================
+@teacher_bp.route("/delete_upload/<upload_id>", methods=["DELETE"])
+@jwt_required()
+def delete_upload(upload_id):
+    """Delete all grades from a specific upload"""
+    try:
+        teacher_id = get_jwt_identity()
+        
+        # Verify that this upload belongs to the teacher
+        first_grade = current_app.db.grades.find_one({
+            "uploadId": upload_id,
+            "teacherId": teacher_id
+        })
+        
+        if not first_grade:
+            return jsonify({"success": False, "message": "Upload not found or unauthorized"}), 404
+
+        # Delete all grades with this uploadId
+        result = current_app.db.grades.delete_many({
+            "uploadId": upload_id,
+            "teacherId": teacher_id
+        })
+
+        deleted_count = result.deleted_count
+        
+        if deleted_count > 0:
+            print(f"Deleted {deleted_count} grades for upload {upload_id} by teacher {teacher_id}")
+            return jsonify({
+                "success": True, 
+                "message": f"Successfully deleted {deleted_count} grades"
+            }), 200
+        else:
+            return jsonify({"success": False, "message": "No grades found to delete"}), 404
+
+    except Exception as e:
+        print(f"Error deleting upload: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ================= TEACHER: get upload details =================
+@teacher_bp.route("/upload_details/<upload_id>", methods=["GET"])
+@jwt_required()
+def upload_details(upload_id):
+    """Get detailed information about a specific upload"""
+    try:
+        teacher_id = get_jwt_identity()
+        
+        # Fetch all grades for this upload
+        grades = list(current_app.db.grades.find({
+            "uploadId": upload_id,
+            "teacherId": teacher_id
+        }))
+        
+        if not grades:
+            return jsonify({"success": False, "message": "Upload not found"}), 404
+
+        # Format grades for display
+        result = []
+        for g in grades:
+            grade_info = {
+                "regNumber": g.get("regNumber"),
+                "subject": g.get("subject"),
+                "marks": g.get("marks"),
+            }
+            
+            # Add CAT-specific fields
+            if g.get("totalMarks") is not None:
+                grade_info["totalMarks"] = g.get("totalMarks")
+            
+            # Add GPA field
+            if g.get("gpa") is not None:
+                grade_info["gpa"] = g.get("gpa")
+            
+            result.append(grade_info)
+
+        upload_info = grades[0] if grades else {}
+        
+        return jsonify({
+            "success": True,
+            "uploadInfo": {
+                "uploadId": upload_id,
+                "fileName": upload_info.get("fileName"),
+                "date": upload_info.get("date"),
+                "semester": upload_info.get("semester"),
+                "department": upload_info.get("department"),
+                "testType": upload_info.get("testType"),
+                "uploadedAt": upload_info.get("uploadedAt").isoformat() if upload_info.get("uploadedAt") else None,
+                "gradeType": upload_info.get("gradeType", "regular")
+            },
+            "grades": result,
+            "totalGrades": len(result)
+        }), 200
+
+    except Exception as e:
+        print(f"Error fetching upload details: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
