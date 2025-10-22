@@ -2,7 +2,8 @@
 WSGI entry point for production (Render deployment)
 Simplified: Socket.IO removed (gunicorn incompatibility)
 """
-
+import eventlet
+eventlet.monkey_patch()
 from app import create_app
 import os
 
