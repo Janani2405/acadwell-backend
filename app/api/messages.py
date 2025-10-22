@@ -4,10 +4,11 @@ from app.extensions import socketio
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 import traceback
 import json
 import uuid
+import time
 
 # ✅ MENTAL HEALTH IMPORTS
 from app.utils.mental_health_analyzer import analyze_text
@@ -21,20 +22,61 @@ def safe_content_handler(content):
         return ""
     
     if isinstance(content, list):
-        # If it's a list, join it (this fixes the character splitting)
         return ''.join(str(item) for item in content)
     
     if isinstance(content, str):
         return content
     
-    # For any other type, convert to string
     return str(content)
 
 def debug_content(content, location="unknown"):
     """Debug helper to track content issues"""
-    print(f"🛠 DEBUG [{location}]: Content type={type(content)}, value={repr(content)}")
+    print(f"🛠️ DEBUG [{location}]: Content type={type(content)}, value={repr(content)}")
     if isinstance(content, list):
-        print(f"🛠 DEBUG [{location}]: List length={len(content)}, first_few={content[:5] if len(content) > 5 else content}")
+        print(f"🛠️ DEBUG [{location}]: List length={len(content)}, first_few={content[:5] if len(content) > 5 else content}")
+
+def get_current_utc_time():
+    """
+    Get current UTC time with proper timezone awareness
+    CRITICAL: This ensures we ALWAYS get the actual current time
+    """
+    current_time = datetime.now(timezone.utc)
+    
+    # Debug logging
+    print(f"⏰ Backend Time Debug:")
+    print(f"   UTC Time: {current_time.isoformat()}")
+    print(f"   Unix Timestamp: {time.time()}")
+    print(f"   Timezone: {current_time.tzinfo}")
+    
+    return current_time
+
+def verify_timestamp(timestamp_obj):
+    """Verify a timestamp is recent (within last 10 seconds)"""
+    if not timestamp_obj:
+        return False
+    
+    now = datetime.now(timezone.utc)
+    diff = (now - timestamp_obj).total_seconds()
+    
+    print(f"⏰ Timestamp Verification:")
+    print(f"   Stored: {timestamp_obj.isoformat()}")
+    print(f"   Now: {now.isoformat()}")
+    print(f"   Difference: {diff} seconds")
+    
+    return abs(diff) < 10
+
+def calculate_unread_count(conversation_id, user_id, db):
+    """Calculate unread message count for a user in a conversation"""
+    try:
+        unread_count = db.messages.count_documents({
+            "conversation_id": conversation_id,
+            "sender_id": {"$ne": str(user_id)},
+            "read_by": {"$ne": str(user_id)}
+        })
+        return unread_count
+    except Exception as e:
+        print(f"❌ Error calculating unread count: {e}")
+        return 0
 
 # ---------- REST endpoints ----------
 
@@ -68,12 +110,17 @@ def get_conversations():
         # Safely handle last_message
         last_message = safe_content_handler(c.get("last_message", ""))
         
+        # ✅ Calculate unread count
+        unread_count = calculate_unread_count(c["_id"], user_id, db)
+        
         out.append({
             "conversation_id": str(c["_id"]),
             "participants": [str(p) for p in c["participants"]],
             "other_preview": ", ".join(other_user_names) if other_user_names else "Unknown",
             "last_message": last_message,
-            "last_updated": c.get("last_updated").isoformat() if c.get("last_updated") else None
+            "last_updated": c.get("last_updated").isoformat() if c.get("last_updated") else None,
+            "unread_count": unread_count,
+            "is_pinned": c.get("is_pinned", False)
         })
     return jsonify({"conversations": out}), 200
 
@@ -106,11 +153,13 @@ def start_conversation():
         if existing:
             return jsonify({"conversation_id": str(existing["_id"])}), 200
 
+    now = get_current_utc_time()
     conv = {
         "participants": participants,
-        "created_at": datetime.utcnow(),
-        "last_message": "",  # Explicitly set as empty string
-        "last_updated": datetime.utcnow()
+        "created_at": now,
+        "last_message": "",
+        "last_updated": now,
+        "is_pinned": False
     }
     res = db.conversations.insert_one(conv)
     return jsonify({"conversation_id": str(res.inserted_id)}), 201
@@ -146,14 +195,13 @@ def get_messages(conv_id):
         sender = db.users.find_one({"user_id": str(m["sender_id"])})
         sender_name = sender.get('name', 'Unknown') if sender else 'Unknown'
         
-        # Safely handle content with debugging
+        # Safely handle content
         raw_content = m.get("content", "")
-        debug_content(raw_content, f"get_messages-{m.get('_id')}")
         content = safe_content_handler(raw_content)
         
         # Skip empty or single character messages (likely broken)
         if len(content.strip()) == 0 or (len(content) == 1 and content.isalpha()):
-            print(f"⚠️  Skipping potentially broken message: '{content}'")
+            print(f"⚠️ Skipping potentially broken message: '{content}'")
             continue
         
         out.append({
@@ -162,8 +210,10 @@ def get_messages(conv_id):
             "sender_id": str(m["sender_id"]),
             "sender_name": sender_name,
             "content": content,
-            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else datetime.utcnow().isoformat(),
-            "read_by": [str(u) for u in m.get("read_by", [])]
+            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else get_current_utc_time().isoformat(),
+            "read_by": [str(u) for u in m.get("read_by", [])],
+            "is_pinned": m.get("is_pinned", False),
+            "edited": m.get("edited", False)
         })
     
     print(f"📨 Returning {len(out)} messages for conversation {conv_id}")
@@ -174,16 +224,12 @@ def send_message_rest(conv_id):
     data = request.get_json() or {}
     raw_content = data.get("content", "")
     
-    # Debug incoming content
-    debug_content(raw_content, "send_message_rest-input")
-    
     # Safely handle and validate content
     content = safe_content_handler(raw_content).strip()
     
     if not content:
         return jsonify({"error": "Empty message"}), 400
     
-    # Additional validation
     if len(content) < 1:
         return jsonify({"error": "Message too short"}), 400
 
@@ -204,18 +250,25 @@ def send_message_rest(conv_id):
     except Exception:
         return jsonify({"error": "Bad conversation id"}), 400
 
-    now = datetime.utcnow()
-
-    # Store message with explicit string content
+    # ✅ CRITICAL FIX: Get ACTUAL current time
+    now = get_current_utc_time()
+    
+    # ✅ Verify it's a recent timestamp
+    is_recent = verify_timestamp(now)
+    print(f"✅ Timestamp is recent: {is_recent}")
+    print(f"About to store: {now.isoformat()}")
+    # Store message
     msg = {
         "conversation_id": conv_obj_id,
         "sender_id": str(user_id),
-        "content": str(content),  # FORCE string type
+        "content": str(content),
         "timestamp": now,
-        "read_by": [str(user_id)]
+        "read_by": [str(user_id)],
+        "is_pinned": False,
+        "edited": False
     }
     
-    print(f"💾 Storing message: {msg}")
+    print(f"💾 Storing message with timestamp: {now.isoformat()}")
     res = db.messages.insert_one(msg)
 
     # Update conversation
@@ -228,8 +281,7 @@ def send_message_rest(conv_id):
     try:
         analysis = analyze_text(str(content), context='message')
         
-        if analysis['score'] > 0:  # Only log if there's something to analyze
-            # Store mental health log
+        if analysis['score'] > 0:
             mh_log = {
                 'log_id': str(uuid.uuid4()),
                 'user_id': str(user_id),
@@ -247,7 +299,6 @@ def send_message_rest(conv_id):
             }
             db.mental_health_logs.insert_one(mh_log)
             
-            # Update user wellness profile
             db.user_wellness_profile.update_one(
                 {'user_id': str(user_id)},
                 {
@@ -259,19 +310,16 @@ def send_message_rest(conv_id):
                 upsert=True
             )
             
-            # Send alerts if needed
             if analysis['needs_attention']:
                 check_and_send_alerts(str(user_id), analysis['level'], str(content), db)
             
-            # Send encouragement to student
             send_student_encouragement(str(user_id), analysis['level'], db)
             
             print(f"🧠 Mental health analysis: User {user_id}, Level: {analysis['level']}, Score: {analysis['score']}")
             
     except Exception as e:
-        print(f"⚠️  Mental health analysis failed: {e}")
+        print(f"⚠️ Mental health analysis failed: {e}")
         traceback.print_exc()
-        # Don't fail the message send if analysis fails
 
     # Get sender name
     sender = db.users.find_one({"user_id": str(user_id)})
@@ -282,7 +330,7 @@ def send_message_rest(conv_id):
         "conversation_id": str(conv_id),
         "sender_id": str(user_id),
         "sender_name": sender_name,
-        "content": str(content),  # FORCE string type
+        "content": str(content),
         "timestamp": now.isoformat()
     }
 
@@ -293,6 +341,287 @@ def send_message_rest(conv_id):
         print(f"❌ Socket emit error: {e}")
 
     return jsonify({"message": "sent", "data": msg_out}), 201
+
+@messages_bp.route('/<conv_id>/mark-read', methods=['POST'])
+def mark_messages_read(conv_id):
+    """Mark all messages in conversation as read"""
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '') if auth.startswith('Bearer ') else None
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+
+    try:
+        decoded = decode_token(token)
+        user_id = decoded.get('sub') or decoded.get('identity')
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    db = current_app.db
+    try:
+        conv_obj_id = ObjectId(conv_id)
+    except Exception:
+        return jsonify({"error": "Bad conversation id"}), 400
+
+    # Mark all unread messages as read
+    result = db.messages.update_many(
+        {
+            "conversation_id": conv_obj_id,
+            "sender_id": {"$ne": str(user_id)},
+            "read_by": {"$ne": str(user_id)}
+        },
+        {
+            "$addToSet": {"read_by": str(user_id)}
+        }
+    )
+
+    # Emit read status to other participants
+    socketio.emit('messages_read', {
+        'conversation_id': str(conv_obj_id),
+        'user_id': str(user_id)
+    }, room=str(conv_obj_id))
+
+    return jsonify({
+        "success": True,
+        "marked_read": result.modified_count
+    }), 200
+
+@messages_bp.route('/<conv_id>/pinned', methods=['GET'])
+def get_pinned_messages(conv_id):
+    """Get pinned messages for a conversation"""
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '') if auth.startswith('Bearer ') else None
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+
+    try:
+        decoded = decode_token(token)
+        user_id = decoded.get('sub') or decoded.get('identity')
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    db = current_app.db
+    try:
+        conv_obj_id = ObjectId(conv_id)
+    except Exception:
+        return jsonify({"error": "Bad conversation id"}), 400
+
+    conv = db.conversations.find_one({"_id": conv_obj_id, "participants": user_id})
+    if not conv:
+        return jsonify({"error": "Conversation not found or access denied"}), 404
+
+    pinned_msgs = list(db.messages.find({
+        "conversation_id": conv_obj_id,
+        "is_pinned": True
+    }).sort("timestamp", -1).limit(10))
+
+    out = []
+    for m in pinned_msgs:
+        sender = db.users.find_one({"user_id": str(m["sender_id"])})
+        sender_name = sender.get('name', 'Unknown') if sender else 'Unknown'
+        
+        content = safe_content_handler(m.get("content", ""))
+        
+        out.append({
+            "message_id": str(m["_id"]),
+            "sender_id": str(m["sender_id"]),
+            "sender_name": sender_name,
+            "content": content,
+            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
+            "is_pinned": True
+        })
+    
+    return jsonify({"pinned_messages": out}), 200
+
+@messages_bp.route('/<conv_id>/pin/<message_id>', methods=['POST'])
+def toggle_pin_message(conv_id, message_id):
+    """Toggle pin status of a message"""
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '') if auth.startswith('Bearer ') else None
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+
+    try:
+        decoded = decode_token(token)
+        user_id = decoded.get('sub') or decoded.get('identity')
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    db = current_app.db
+    try:
+        conv_obj_id = ObjectId(conv_id)
+        msg_obj_id = ObjectId(message_id)
+    except Exception:
+        return jsonify({"error": "Bad id"}), 400
+
+    conv = db.conversations.find_one({"_id": conv_obj_id, "participants": user_id})
+    if not conv:
+        return jsonify({"error": "Conversation not found or access denied"}), 404
+
+    message = db.messages.find_one({"_id": msg_obj_id, "conversation_id": conv_obj_id})
+    if not message:
+        return jsonify({"error": "Message not found"}), 404
+
+    current_pin_status = message.get("is_pinned", False)
+    new_pin_status = not current_pin_status
+
+    db.messages.update_one(
+        {"_id": msg_obj_id},
+        {"$set": {"is_pinned": new_pin_status}}
+    )
+
+    return jsonify({
+        "success": True,
+        "message_id": str(msg_obj_id),
+        "is_pinned": new_pin_status
+    }), 200
+
+@messages_bp.route('/<conv_id>/edit/<message_id>', methods=['PUT'])
+def edit_message(conv_id, message_id):
+    """Edit a message"""
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '') if auth.startswith('Bearer ') else None
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+
+    try:
+        decoded = decode_token(token)
+        user_id = decoded.get('sub') or decoded.get('identity')
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    data = request.get_json() or {}
+    new_content = safe_content_handler(data.get("content", "")).strip()
+
+    if not new_content:
+        return jsonify({"error": "Content required"}), 400
+
+    db = current_app.db
+    try:
+        conv_obj_id = ObjectId(conv_id)
+        msg_obj_id = ObjectId(message_id)
+    except Exception:
+        return jsonify({"error": "Bad id"}), 400
+
+    message = db.messages.find_one({
+        "_id": msg_obj_id,
+        "conversation_id": conv_obj_id,
+        "sender_id": str(user_id)
+    })
+    
+    if not message:
+        return jsonify({"error": "Message not found or unauthorized"}), 404
+
+    db.messages.update_one(
+        {"_id": msg_obj_id},
+        {"$set": {
+            "content": new_content,
+            "edited": True
+        }}
+    )
+
+    socketio.emit('message_edited', {
+        'message_id': str(msg_obj_id),
+        'content': new_content
+    }, room=str(conv_obj_id))
+
+    return jsonify({
+        "success": True,
+        "message_id": str(msg_obj_id),
+        "content": new_content
+    }), 200
+
+@messages_bp.route('/<conv_id>/delete/<message_id>', methods=['DELETE'])
+def delete_message(conv_id, message_id):
+    """Delete a message"""
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '') if auth.startswith('Bearer ') else None
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+
+    try:
+        decoded = decode_token(token)
+        user_id = decoded.get('sub') or decoded.get('identity')
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    db = current_app.db
+    try:
+        conv_obj_id = ObjectId(conv_id)
+        msg_obj_id = ObjectId(message_id)
+    except Exception:
+        return jsonify({"error": "Bad id"}), 400
+
+    message = db.messages.find_one({
+        "_id": msg_obj_id,
+        "conversation_id": conv_obj_id,
+        "sender_id": str(user_id)
+    })
+    
+    if not message:
+        return jsonify({"error": "Message not found or unauthorized"}), 404
+
+    db.messages.delete_one({"_id": msg_obj_id})
+
+    socketio.emit('message_deleted', {
+        'message_id': str(msg_obj_id)
+    }, room=str(conv_obj_id))
+
+    return jsonify({
+        "success": True,
+        "message_id": str(msg_obj_id)
+    }), 200
+
+@messages_bp.route('/<conv_id>/info', methods=['GET'])
+def get_conversation_info(conv_id):
+    """Get conversation details with participants"""
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '') if auth.startswith('Bearer ') else None
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+
+    try:
+        decoded = decode_token(token)
+        user_id = decoded.get('sub') or decoded.get('identity')
+    except Exception:
+        return jsonify({"error": "Invalid token"}), 401
+
+    db = current_app.db
+    try:
+        conv_obj_id = ObjectId(conv_id)
+    except Exception:
+        return jsonify({"error": "Bad conversation id"}), 400
+
+    conv = db.conversations.find_one({"_id": conv_obj_id, "participants": user_id})
+    if not conv:
+        return jsonify({"error": "Conversation not found"}), 404
+
+    participants_data = []
+    for participant_id in conv.get('participants', []):
+        user = db.users.find_one({"user_id": participant_id})
+        if user:
+            participants_data.append({
+                'user_id': participant_id,
+                'name': user.get('name', 'Unknown'),
+                'email': user.get('email', ''),
+                'role': user.get('role', ''),
+                'status': 'online'
+            })
+
+    if len(participants_data) > 2:
+        conv_name = f"Group Chat ({len(participants_data)} members)"
+    else:
+        other_users = [p for p in participants_data if p['user_id'] != user_id]
+        conv_name = other_users[0]['name'] if other_users else 'Chat'
+
+    return jsonify({
+        "conversation": {
+            "conversation_id": str(conv["_id"]),
+            "name": conv_name,
+            "participants": participants_data,
+            "created_at": conv.get("created_at").isoformat() if conv.get("created_at") else None,
+            "is_group": len(participants_data) > 2
+        }
+    }), 200
 
 # ---------- Socket.IO handlers ----------
 
@@ -363,10 +692,6 @@ def on_send_message(data):
         conv_id = data.get('conversation_id')
         raw_content = data.get('content') or ''
         
-        # Debug incoming socket content
-        debug_content(raw_content, "socket_send_message-input")
-        
-        # Safely handle content
         content = safe_content_handler(raw_content).strip()
         
         if not conv_id or not content:
@@ -377,17 +702,22 @@ def on_send_message(data):
 
         db = current_app.db
         conv_obj_id = ObjectId(conv_id)
-        now = datetime.utcnow()
+        
+        # ✅ CRITICAL: Get ACTUAL current time
+        now = get_current_utc_time()
+        verify_timestamp(now)
 
         msg = {
             "conversation_id": conv_obj_id,
             "sender_id": str(user_id),
-            "content": str(content),  # FORCE string type
+            "content": str(content),
             "timestamp": now,
-            "read_by": [str(user_id)]
+            "read_by": [str(user_id)],
+            "is_pinned": False,
+            "edited": False
         }
         
-        print(f"💾 Socket storing message: {msg}")
+        print(f"💾 Socket storing message with timestamp: {now.isoformat()}")
         res = db.messages.insert_one(msg)
 
         db.conversations.update_one(
@@ -395,12 +725,11 @@ def on_send_message(data):
             {"$set": {"last_message": str(content), "last_updated": now}}
         )
 
-        # ✅ MENTAL HEALTH ANALYSIS FOR SOCKET MESSAGES
+        # ✅ MENTAL HEALTH ANALYSIS
         try:
             analysis = analyze_text(str(content), context='message')
             
             if analysis['score'] > 0:
-                # Store mental health log
                 mh_log = {
                     'log_id': str(uuid.uuid4()),
                     'user_id': str(user_id),
@@ -418,7 +747,6 @@ def on_send_message(data):
                 }
                 db.mental_health_logs.insert_one(mh_log)
                 
-                # Update user wellness profile
                 db.user_wellness_profile.update_one(
                     {'user_id': str(user_id)},
                     {
@@ -430,20 +758,17 @@ def on_send_message(data):
                     upsert=True
                 )
                 
-                # Send alerts if needed
                 if analysis['needs_attention']:
                     check_and_send_alerts(str(user_id), analysis['level'], str(content), db)
                 
-                # Send encouragement to student
                 send_student_encouragement(str(user_id), analysis['level'], db)
                 
                 print(f"🧠 Mental health analysis: User {user_id}, Level: {analysis['level']}, Score: {analysis['score']}")
                 
         except Exception as e:
-            print(f"⚠️  Mental health analysis failed: {e}")
+            print(f"⚠️ Mental health analysis failed: {e}")
             traceback.print_exc()
 
-        # Get sender name
         sender = db.users.find_one({"user_id": str(user_id)})
         sender_name = sender.get('name', 'Unknown') if sender else 'Unknown'
 
@@ -452,7 +777,7 @@ def on_send_message(data):
             "conversation_id": str(conv_id),
             "sender_id": str(user_id),
             "sender_name": sender_name,
-            "content": str(content),  # FORCE string type
+            "content": str(content),
             "timestamp": now.isoformat()
         }
 
@@ -463,8 +788,6 @@ def on_send_message(data):
         print(f"❌ Send message error: {e}")
         traceback.print_exc()
         emit('error', {'error': 'server error'})
-        
-# Add to backend/app/api/messages.py
 
 @socketio.on('typing')
 def on_typing(data):
@@ -479,11 +802,10 @@ def on_typing(data):
         decoded = decode_token(token)
         user_id = str(decoded.get('sub') or decoded.get('identity'))
         
-        # Broadcast to others in the room
-        socketio.emit('user_typing', {
-            'user_id': user_id,
-            'conversation_id': conv_id
-        }, room=str(conv_id), skip_sid=request.sid)
+        # socketio.emit('user_typing', {
+        #     'user_id': user_id,
+        #     'conversation_id': conv_id
+        # }, room=str(conv_id), skip_sid=request.sid)
         
     except Exception as e:
         print(f"❌ Typing error: {e}")
@@ -502,66 +824,10 @@ def on_stop_typing(data):
         decoded = decode_token(token)
         user_id = str(decoded.get('sub') or decoded.get('identity'))
         
-        socketio.emit('user_stop_typing', {
-            'user_id': user_id,
-            'conversation_id': conv_id
-        }, room=str(conv_id), skip_sid=request.sid)
+        # socketio.emit('user_stop_typing', {
+        #     'user_id': user_id,
+        #     'conversation_id': conv_id
+        # }, room=str(conv_id), skip_sid=request.sid)
         
     except Exception as e:
         print(f"❌ Stop typing error: {e}")
-        
-# Add to backend/app/api/messages.py
-
-@messages_bp.route('/<conv_id>/info', methods=['GET'])
-def get_conversation_info(conv_id):
-    """Get conversation details with participants"""
-    auth = request.headers.get('Authorization', '')
-    token = auth.replace('Bearer ', '') if auth.startswith('Bearer ') else None
-    if not token:
-        return jsonify({"error": "Missing token"}), 401
-
-    try:
-        decoded = decode_token(token)
-        user_id = decoded.get('sub') or decoded.get('identity')
-    except Exception:
-        return jsonify({"error": "Invalid token"}), 401
-
-    db = current_app.db
-    try:
-        conv_obj_id = ObjectId(conv_id)
-    except Exception:
-        return jsonify({"error": "Bad conversation id"}), 400
-
-    conv = db.conversations.find_one({"_id": conv_obj_id, "participants": user_id})
-    if not conv:
-        return jsonify({"error": "Conversation not found"}), 404
-
-    # Get participant details
-    participants_data = []
-    for participant_id in conv.get('participants', []):
-        user = db.users.find_one({"user_id": participant_id})
-        if user:
-            participants_data.append({
-                'user_id': participant_id,
-                'name': user.get('name', 'Unknown'),
-                'email': user.get('email', ''),
-                'role': user.get('role', ''),
-                'status': 'online'  # You can implement real status tracking
-            })
-
-    # Generate conversation name
-    if len(participants_data) > 2:
-        conv_name = f"Group Chat ({len(participants_data)} members)"
-    else:
-        other_users = [p for p in participants_data if p['user_id'] != user_id]
-        conv_name = other_users[0]['name'] if other_users else 'Chat'
-
-    return jsonify({
-        "conversation": {
-            "conversation_id": str(conv["_id"]),
-            "name": conv_name,
-            "participants": participants_data,
-            "created_at": conv.get("created_at").isoformat() if conv.get("created_at") else None,
-            "is_group": len(participants_data) > 2
-        }
-    }), 200
