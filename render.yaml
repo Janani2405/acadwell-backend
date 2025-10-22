@@ -14,7 +14,7 @@ services:
       - key: FLASK_ENV
         value: production
       - key: PYTHON_VERSION
-        value: 3.11.9
+        value: 3.10.14
       - key: PORT
         value: 5000
       # Add other environment variables in Render dashboard
