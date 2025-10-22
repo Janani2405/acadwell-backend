@@ -17,8 +17,8 @@ Flask-SocketIO==5.3.6
 python-socketio==5.11.1
 
 # Database
-pymongo==4.14.1
-dnspython==2.7.0
+pymongo==4.6.0
+dnspython==2.6.1
 
 # Authentication & Security
 PyJWT==2.10.1
@@ -62,6 +62,7 @@ Flask-Limiter==3.5.0
 # Admin Dependencies
 
 bcrypt==4.1.2
+
 
 
 
