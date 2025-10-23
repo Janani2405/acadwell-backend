@@ -1,18 +1,20 @@
 """
 WSGI entry point for production (Render deployment)
-Simplified: Socket.IO removed (gunicorn incompatibility)
 """
 import eventlet
 eventlet.monkey_patch()
+
 from app import create_app
+from app.extensions import socketio
 import os
 
 # Create app instance
-app = create_app()
+app, _ = create_app()  # Unpack the tuple
 
 if __name__ == '__main__':
-    # For local testing only
-    app.run(
+    # Run with socketio for production
+    socketio.run(
+        app,
         host='0.0.0.0',
         port=int(os.getenv('PORT', 5000)),
         debug=False

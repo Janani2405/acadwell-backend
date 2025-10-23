@@ -3,7 +3,7 @@
 AcadWell Flask Application Factory
 Creates and configures the Flask app with all extensions and blueprints
 """
-from flask import request  # Add this import at the very top
+from flask import request
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
@@ -11,6 +11,9 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
 from datetime import datetime
 import os
+
+# Import socketio from extensions
+from app.extensions import socketio
 
 def create_app(config_name=None):
     """
@@ -31,7 +34,7 @@ def create_app(config_name=None):
     # Initialize configuration
     config_class.init_app(app)
     
-    # ✅ CRITICAL FIX: Configure CORS BEFORE registering blueprints
+    # ✅ Initialize Socket.IO with the app
     cors_origins = [
         'https://acadwell-frontend.vercel.app',
         'https://acadwell.vercel.app',
@@ -41,6 +44,17 @@ def create_app(config_name=None):
         'http://127.0.0.1:5173'
     ]
     
+    socketio.init_app(app, 
+                      cors_allowed_origins=cors_origins,
+                      async_mode='eventlet',
+                      logger=True,
+                      engineio_logger=True,
+                      ping_timeout=60,
+                      ping_interval=25)
+    
+    print("✅ Socket.IO initialized successfully")
+    
+    # ✅ CRITICAL FIX: Configure CORS BEFORE registering blueprints
     CORS(app,
          origins=cors_origins,
          methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -164,7 +178,7 @@ def _create_indexes(db):
         print("✅ Database indexes created successfully")
         
     except Exception as e:
-        print(f"⚠️  Warning: Could not create indexes: {e}")
+        print(f"⚠️ Warning: Could not create indexes: {e}")
 
 
 def _register_blueprints(app):
