@@ -318,3 +318,6 @@ def _register_utility_routes(app):
                 'https://acadwell.vercel.app'
             ]
         })
+    
+    # ✅ Return app only (socketio is already initialized)
+    return app

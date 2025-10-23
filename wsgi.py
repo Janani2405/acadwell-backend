@@ -9,7 +9,7 @@ from app.extensions import socketio
 import os
 
 # Create app instance
-app, _ = create_app()  # Unpack the tuple
+app = create_app()
 
 if __name__ == '__main__':
     # Run with socketio for production
