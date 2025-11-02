@@ -80,6 +80,7 @@ def calculate_unread_count(conversation_id, user_id, db):
 
 # ---------- REST endpoints ----------
 
+# ✨ UPDATE: get_conversations endpoint
 @messages_bp.route('/conversations', methods=['GET'])
 def get_conversations():
     auth = request.headers.get('Authorization', '')
@@ -100,27 +101,40 @@ def get_conversations():
     for c in convs:
         other = [p for p in c['participants'] if p != user_id]
         
-        # Get user names for better display
-        other_user_names = []
-        for other_id in other:
-            user = db.users.find_one({"user_id": other_id})
-            if user:
-                other_user_names.append(user.get('name', 'Unknown'))
+        # ✨ NEW: Check if anonymous conversation
+        is_anonymous = c.get("isAnonymous", False)
+        identity_revealed = c.get("identityRevealed", False)
+        
+        if is_anonymous and not identity_revealed:
+            # Show anonymous IDs instead of real names
+            participants_anon = c.get("participantsAnon", {})
+            other_names = [participants_anon.get(p, "Anonymous") for p in other]
+            other_preview = ", ".join(other_names)
+        else:
+            # Show real names
+            other_user_names = []
+            for other_id in other:
+                user = db.users.find_one({"user_id": other_id})
+                if user:
+                    other_user_names.append(user.get('name', 'Unknown'))
+            other_preview = ", ".join(other_user_names) if other_user_names else "Unknown"
         
         # Safely handle last_message
         last_message = safe_content_handler(c.get("last_message", ""))
         
-        # ✅ Calculate unread count
+        # Calculate unread count
         unread_count = calculate_unread_count(c["_id"], user_id, db)
         
         out.append({
             "conversation_id": str(c["_id"]),
             "participants": [str(p) for p in c["participants"]],
-            "other_preview": ", ".join(other_user_names) if other_user_names else "Unknown",
+            "other_preview": other_preview,
             "last_message": last_message,
             "last_updated": c.get("last_updated").isoformat() if c.get("last_updated") else None,
             "unread_count": unread_count,
-            "is_pinned": c.get("is_pinned", False)
+            "is_pinned": c.get("is_pinned", False),
+            "isAnonymous": is_anonymous,  # ✨ NEW
+            "identityRevealed": identity_revealed  # ✨ NEW
         })
     return jsonify({"conversations": out}), 200
 
@@ -164,6 +178,7 @@ def start_conversation():
     res = db.conversations.insert_one(conv)
     return jsonify({"conversation_id": str(res.inserted_id)}), 201
 
+# ✨ UPDATE: get_messages endpoint - show anonymous sender names
 @messages_bp.route('/<conv_id>/messages', methods=['GET'])
 def get_messages(conv_id):
     auth = request.headers.get('Authorization', '')
@@ -187,27 +202,54 @@ def get_messages(conv_id):
     if not conv:
         return jsonify({"error": "Conversation not found or access denied"}), 404
 
+    # ✨ NEW: Check if anonymous
+    is_anonymous = conv.get("isAnonymous", False)
+    identity_revealed = conv.get("identityRevealed", False)
+    participants_anon = conv.get("participantsAnon", {})
+
     msgs = list(db.messages.find({"conversation_id": conv_obj_id}).sort("timestamp", 1))
     out = []
     
     for m in msgs:
+        # Skip system messages content handling
+        if m.get("system"):
+            out.append({
+                "message_id": str(m["_id"]),
+                "conversation_id": str(m["conversation_id"]),
+                "sender_id": "system",
+                "sender_name": "System",
+                "content": safe_content_handler(m.get("content", "")),
+                "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else get_current_utc_time().isoformat(),
+                "read_by": [],
+                "is_pinned": False,
+                "edited": False,
+                "system": True
+            })
+            continue
+        
         # Get sender name
-        sender = db.users.find_one({"user_id": str(m["sender_id"])})
-        sender_name = sender.get('name', 'Unknown') if sender else 'Unknown'
+        sender_id = str(m["sender_id"])
+        
+        if is_anonymous and not identity_revealed:
+            # Show anonymous name
+            sender_name = participants_anon.get(sender_id, "Anonymous")
+        else:
+            # Show real name
+            sender = db.users.find_one({"user_id": sender_id})
+            sender_name = sender.get('name', 'Unknown') if sender else 'Unknown'
         
         # Safely handle content
         raw_content = m.get("content", "")
         content = safe_content_handler(raw_content)
         
-        # Skip empty or single character messages (likely broken)
+        # Skip empty or single character messages
         if len(content.strip()) == 0 or (len(content) == 1 and content.isalpha()):
-            print(f"⚠️ Skipping potentially broken message: '{content}'")
             continue
         
         out.append({
             "message_id": str(m["_id"]),
             "conversation_id": str(m["conversation_id"]),
-            "sender_id": str(m["sender_id"]),
+            "sender_id": sender_id,
             "sender_name": sender_name,
             "content": content,
             "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else get_current_utc_time().isoformat(),
@@ -216,8 +258,8 @@ def get_messages(conv_id):
             "edited": m.get("edited", False)
         })
     
-    print(f"📨 Returning {len(out)} messages for conversation {conv_id}")
     return jsonify({"messages": out}), 200
+
 
 @messages_bp.route('/<conv_id>/send', methods=['POST'])
 def send_message_rest(conv_id):
@@ -571,6 +613,7 @@ def delete_message(conv_id, message_id):
         "message_id": str(msg_obj_id)
     }), 200
 
+# ✨ UPDATE: get_conversation_info endpoint
 @messages_bp.route('/<conv_id>/info', methods=['GET'])
 def get_conversation_info(conv_id):
     """Get conversation details with participants"""
@@ -595,17 +638,37 @@ def get_conversation_info(conv_id):
     if not conv:
         return jsonify({"error": "Conversation not found"}), 404
 
+    # ✨ NEW: Handle anonymous conversations
+    is_anonymous = conv.get("isAnonymous", False)
+    identity_revealed = conv.get("identityRevealed", False)
+    
     participants_data = []
     for participant_id in conv.get('participants', []):
         user = db.users.find_one({"user_id": participant_id})
         if user:
-            participants_data.append({
-                'user_id': participant_id,
-                'name': user.get('name', 'Unknown'),
-                'email': user.get('email', ''),
-                'role': user.get('role', ''),
-                'status': 'online'
-            })
+            if is_anonymous and not identity_revealed:
+                # Show anonymous info
+                participants_anon = conv.get("participantsAnon", {})
+                anon_id = participants_anon.get(participant_id, user.get("anonId", "Anonymous"))
+                
+                participants_data.append({
+                    'user_id': participant_id,
+                    'name': anon_id,  # Show anon ID instead
+                    'email': '',  # Hide email
+                    'role': 'Anonymous',  # Hide role
+                    'status': 'online',
+                    'isAnonymous': True
+                })
+            else:
+                # Show real info
+                participants_data.append({
+                    'user_id': participant_id,
+                    'name': user.get('name', 'Unknown'),
+                    'email': user.get('email', ''),
+                    'role': user.get('role', ''),
+                    'status': 'online',
+                    'isAnonymous': False
+                })
 
     if len(participants_data) > 2:
         conv_name = f"Group Chat ({len(participants_data)} members)"
@@ -619,7 +682,10 @@ def get_conversation_info(conv_id):
             "name": conv_name,
             "participants": participants_data,
             "created_at": conv.get("created_at").isoformat() if conv.get("created_at") else None,
-            "is_group": len(participants_data) > 2
+            "is_group": len(participants_data) > 2,
+            "isAnonymous": is_anonymous,  # ✨ NEW
+            "identityRevealed": identity_revealed,  # ✨ NEW
+            "revealRequests": conv.get("revealRequests", [])  # ✨ NEW
         }
     }), 200
 

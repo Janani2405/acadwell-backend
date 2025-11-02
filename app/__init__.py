@@ -196,6 +196,7 @@ def _register_blueprints(app):
     from app.api.grades import students_bp, teacher_bp
     from app.api.groups import groups_bp
     from app.api.admin import admin_bp
+    from app.api.anonymous import anonymous_bp  # ✨ NEW
     
     # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -210,6 +211,7 @@ def _register_blueprints(app):
     app.register_blueprint(teacher_bp, url_prefix='/api/teacher')
     app.register_blueprint(groups_bp, url_prefix='/api/groups')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(anonymous_bp, url_prefix='/api/anonymous')  # ✨ NEW
     
     print("✅ All blueprints registered successfully")
 
