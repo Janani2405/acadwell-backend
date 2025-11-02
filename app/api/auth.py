@@ -128,13 +128,9 @@ def send_registration_confirmation_email(email, user_name, role):
 
 # ==================== STUDENT REGISTRATION ====================
 
-# In each registration function (student, teacher, others), add anonId field
-
-# Example for student registration - apply same fix to teacher and others routes
-
 @auth_bp.route('/register/student', methods=['POST'])
 def register_student():
-    """Register a new student with email verification"""
+    """Register a new student with email verification and anonymous ID"""
     try:
         data = request.get_json()
         required_fields = ["name", "regNumber", "email", "password", "university", "year", "field"]
@@ -142,28 +138,27 @@ def register_student():
         if not all(field in data for field in required_fields):
             return jsonify({"error": "Missing required fields"}), 400
 
-        # Validate email format
         if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', data["email"]):
             return jsonify({"error": "Invalid email format"}), 400
 
-        # Validate password strength
         if len(data["password"]) < 8:
             return jsonify({"error": "Password must be at least 8 characters"}), 400
 
         db = current_app.db
         users = db.users
 
-        # Check if email already exists
         if users.find_one({"email": data["email"].lower()}):
             return jsonify({"error": "Email already registered"}), 409
 
-        # Check if registration number already exists
         if users.find_one({"regNumber": data["regNumber"]}):
             return jsonify({"error": "Registration number already in use"}), 409
 
         hashed_pw = generate_password_hash(data["password"])
         user_id = str(uuid.uuid4())
         verification_token = secrets.token_urlsafe(32)
+        
+        # ✅ Generate unique anonymous ID
+        anon_id = f"Anon{uuid.uuid4().hex[:8]}"
         
         new_user = {
             "user_id": user_id,
@@ -175,7 +170,18 @@ def register_student():
             "university": data["university"],
             "year": data["year"],
             "field": data["field"],
-            "anonId": None,  # ✅ ADD THIS LINE - or generate a unique ID if needed
+            "anonId": anon_id,  # ✅ ADD ANONYMOUS ID
+            "anonymousProfile": {
+                "tags": [],
+                "role": "both",
+                "status": "available",
+                "lastActive": None,
+                "bio": "",
+                "helpCount": 0,
+                "rating": 0,
+                "reviewCount": 0
+            },
+            "blockedUsers": [],
             "is_verified": False,
             "verification_token": verification_token,
             "token_expires": datetime.utcnow() + timedelta(hours=24),
@@ -186,10 +192,9 @@ def register_student():
 
         users.insert_one(new_user)
         
-        # Send verification email
         send_verification_email(data["email"], data["name"], verification_token)
         
-        print(f"✅ Student registered (pending verification): {user_id} - {data['name']}")
+        print(f"✅ Student registered (pending verification): {user_id} - {data['name']} - AnonID: {anon_id}")
         
         return jsonify({
             "message": "Registration successful! Please check your email to verify your account.",
@@ -200,12 +205,6 @@ def register_student():
     except Exception as e:
         print(f"❌ Error in student registration: {e}")
         return jsonify({"error": "Registration failed. Please try again."}), 500
-
-
-# Apply the same fix to:
-# - register_teacher()
-# - register_others()
-# Add "anonId": None to the new_user dictionary in each function
 # ==================== TEACHER REGISTRATION ====================
 
 @auth_bp.route('/register/teacher', methods=['POST'])
