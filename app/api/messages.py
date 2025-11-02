@@ -4,11 +4,10 @@ from app.extensions import socketio
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
 from bson import ObjectId
-from datetime import datetime, timezone
+from datetime import datetime
 import traceback
 import json
 import uuid
-import time
 
 # ✅ MENTAL HEALTH IMPORTS
 from app.utils.mental_health_analyzer import analyze_text
@@ -29,42 +28,6 @@ def safe_content_handler(content):
     
     return str(content)
 
-def debug_content(content, location="unknown"):
-    """Debug helper to track content issues"""
-    print(f"🛠️ DEBUG [{location}]: Content type={type(content)}, value={repr(content)}")
-    if isinstance(content, list):
-        print(f"🛠️ DEBUG [{location}]: List length={len(content)}, first_few={content[:5] if len(content) > 5 else content}")
-
-def get_current_utc_time():
-    """
-    Get current UTC time with proper timezone awareness
-    CRITICAL: This ensures we ALWAYS get the actual current time
-    """
-    current_time = datetime.now(timezone.utc)
-    
-    # Debug logging
-    print(f"⏰ Backend Time Debug:")
-    print(f"   UTC Time: {current_time.isoformat()}")
-    print(f"   Unix Timestamp: {time.time()}")
-    print(f"   Timezone: {current_time.tzinfo}")
-    
-    return current_time
-
-def verify_timestamp(timestamp_obj):
-    """Verify a timestamp is recent (within last 10 seconds)"""
-    if not timestamp_obj:
-        return False
-    
-    now = datetime.now(timezone.utc)
-    diff = (now - timestamp_obj).total_seconds()
-    
-    print(f"⏰ Timestamp Verification:")
-    print(f"   Stored: {timestamp_obj.isoformat()}")
-    print(f"   Now: {now.isoformat()}")
-    print(f"   Difference: {diff} seconds")
-    
-    return abs(diff) < 10
-
 def calculate_unread_count(conversation_id, user_id, db):
     """Calculate unread message count for a user in a conversation"""
     try:
@@ -80,7 +43,6 @@ def calculate_unread_count(conversation_id, user_id, db):
 
 # ---------- REST endpoints ----------
 
-# ✨ UPDATE: get_conversations endpoint
 @messages_bp.route('/conversations', methods=['GET'])
 def get_conversations():
     auth = request.headers.get('Authorization', '')
@@ -101,7 +63,7 @@ def get_conversations():
     for c in convs:
         other = [p for p in c['participants'] if p != user_id]
         
-        # ✨ NEW: Check if anonymous conversation
+        # Check if anonymous conversation
         is_anonymous = c.get("isAnonymous", False)
         identity_revealed = c.get("identityRevealed", False)
         
@@ -133,8 +95,8 @@ def get_conversations():
             "last_updated": c.get("last_updated").isoformat() if c.get("last_updated") else None,
             "unread_count": unread_count,
             "is_pinned": c.get("is_pinned", False),
-            "isAnonymous": is_anonymous,  # ✨ NEW
-            "identityRevealed": identity_revealed  # ✨ NEW
+            "isAnonymous": is_anonymous,
+            "identityRevealed": identity_revealed
         })
     return jsonify({"conversations": out}), 200
 
@@ -167,7 +129,8 @@ def start_conversation():
         if existing:
             return jsonify({"conversation_id": str(existing["_id"])}), 200
 
-    now = get_current_utc_time()
+    # ✅ USE datetime.utcnow() - SAME AS GROUPS.PY
+    now = datetime.utcnow()
     conv = {
         "participants": participants,
         "created_at": now,
@@ -178,7 +141,6 @@ def start_conversation():
     res = db.conversations.insert_one(conv)
     return jsonify({"conversation_id": str(res.inserted_id)}), 201
 
-# ✨ UPDATE: get_messages endpoint - show anonymous sender names
 @messages_bp.route('/<conv_id>/messages', methods=['GET'])
 def get_messages(conv_id):
     auth = request.headers.get('Authorization', '')
@@ -202,7 +164,7 @@ def get_messages(conv_id):
     if not conv:
         return jsonify({"error": "Conversation not found or access denied"}), 404
 
-    # ✨ NEW: Check if anonymous
+    # Check if anonymous
     is_anonymous = conv.get("isAnonymous", False)
     identity_revealed = conv.get("identityRevealed", False)
     participants_anon = conv.get("participantsAnon", {})
@@ -219,7 +181,7 @@ def get_messages(conv_id):
                 "sender_id": "system",
                 "sender_name": "System",
                 "content": safe_content_handler(m.get("content", "")),
-                "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else get_current_utc_time().isoformat(),
+                "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else datetime.utcnow().isoformat(),
                 "read_by": [],
                 "is_pinned": False,
                 "edited": False,
@@ -242,8 +204,8 @@ def get_messages(conv_id):
         raw_content = m.get("content", "")
         content = safe_content_handler(raw_content)
         
-        # Skip empty or single character messages
-        if len(content.strip()) == 0 or (len(content) == 1 and content.isalpha()):
+        # Skip empty messages
+        if len(content.strip()) == 0:
             continue
         
         out.append({
@@ -252,14 +214,13 @@ def get_messages(conv_id):
             "sender_id": sender_id,
             "sender_name": sender_name,
             "content": content,
-            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else get_current_utc_time().isoformat(),
+            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else datetime.utcnow().isoformat(),
             "read_by": [str(u) for u in m.get("read_by", [])],
             "is_pinned": m.get("is_pinned", False),
             "edited": m.get("edited", False)
         })
     
     return jsonify({"messages": out}), 200
-
 
 @messages_bp.route('/<conv_id>/send', methods=['POST'])
 def send_message_rest(conv_id):
@@ -292,13 +253,9 @@ def send_message_rest(conv_id):
     except Exception:
         return jsonify({"error": "Bad conversation id"}), 400
 
-    # ✅ CRITICAL FIX: Get ACTUAL current time
-    now = get_current_utc_time()
-    
-    # ✅ Verify it's a recent timestamp
-    is_recent = verify_timestamp(now)
-    print(f"✅ Timestamp is recent: {is_recent}")
-    print(f"About to store: {now.isoformat()}")
+    # ✅ USE datetime.utcnow() - SAME AS GROUPS.PY
+    now = datetime.utcnow()
+
     # Store message
     msg = {
         "conversation_id": conv_obj_id,
@@ -310,7 +267,6 @@ def send_message_rest(conv_id):
         "edited": False
     }
     
-    print(f"💾 Storing message with timestamp: {now.isoformat()}")
     res = db.messages.insert_one(msg)
 
     # Update conversation
@@ -357,8 +313,6 @@ def send_message_rest(conv_id):
             
             send_student_encouragement(str(user_id), analysis['level'], db)
             
-            print(f"🧠 Mental health analysis: User {user_id}, Level: {analysis['level']}, Score: {analysis['score']}")
-            
     except Exception as e:
         print(f"⚠️ Mental health analysis failed: {e}")
         traceback.print_exc()
@@ -378,7 +332,6 @@ def send_message_rest(conv_id):
 
     try:
         socketio.emit('new_message', msg_out, room=str(conv_obj_id))
-        print(f"📡 Emitted message via socket: {msg_out}")
     except Exception as e:
         print(f"❌ Socket emit error: {e}")
 
@@ -613,7 +566,6 @@ def delete_message(conv_id, message_id):
         "message_id": str(msg_obj_id)
     }), 200
 
-# ✨ UPDATE: get_conversation_info endpoint
 @messages_bp.route('/<conv_id>/info', methods=['GET'])
 def get_conversation_info(conv_id):
     """Get conversation details with participants"""
@@ -638,7 +590,7 @@ def get_conversation_info(conv_id):
     if not conv:
         return jsonify({"error": "Conversation not found"}), 404
 
-    # ✨ NEW: Handle anonymous conversations
+    # Handle anonymous conversations
     is_anonymous = conv.get("isAnonymous", False)
     identity_revealed = conv.get("identityRevealed", False)
     
@@ -653,9 +605,9 @@ def get_conversation_info(conv_id):
                 
                 participants_data.append({
                     'user_id': participant_id,
-                    'name': anon_id,  # Show anon ID instead
-                    'email': '',  # Hide email
-                    'role': 'Anonymous',  # Hide role
+                    'name': anon_id,
+                    'email': '',
+                    'role': 'Anonymous',
                     'status': 'online',
                     'isAnonymous': True
                 })
@@ -683,9 +635,9 @@ def get_conversation_info(conv_id):
             "participants": participants_data,
             "created_at": conv.get("created_at").isoformat() if conv.get("created_at") else None,
             "is_group": len(participants_data) > 2,
-            "isAnonymous": is_anonymous,  # ✨ NEW
-            "identityRevealed": identity_revealed,  # ✨ NEW
-            "revealRequests": conv.get("revealRequests", [])  # ✨ NEW
+            "isAnonymous": is_anonymous,
+            "identityRevealed": identity_revealed,
+            "revealRequests": conv.get("revealRequests", [])
         }
     }), 200
 
@@ -712,7 +664,6 @@ def on_connect(auth):
         convs = db.conversations.find({"participants": user_id})
         for c in convs:
             join_room(str(c["_id"]))
-            print(f"🏠 User {user_id} joined room: {str(c['_id'])}")
 
         emit('connected', {'message': 'connected', 'user_id': user_id})
         return True
@@ -727,7 +678,6 @@ def on_join_conversation(data):
     try:
         join_room(str(conv_id))
         emit('joined', {'conversation_id': str(conv_id)})
-        print(f"🏠 User joined conversation room: {conv_id}")
     except Exception as e:
         print(f"❌ Error joining conversation: {e}")
 
@@ -736,7 +686,6 @@ def on_leave_conversation(data):
     conv_id = data.get('conversation_id')
     try:
         leave_room(str(conv_id))
-        print(f"🏠 User left conversation room: {conv_id}")
     except Exception as e:
         print(f"❌ Error leaving conversation: {e}")
 
@@ -764,14 +713,11 @@ def on_send_message(data):
             emit('error', {'error': 'bad payload'})
             return
 
-        print(f"💬 Socket message from user {user_id} in conversation {conv_id}: '{content}'")
-
         db = current_app.db
         conv_obj_id = ObjectId(conv_id)
         
-        # ✅ CRITICAL: Get ACTUAL current time
-        now = get_current_utc_time()
-        verify_timestamp(now)
+        # ✅ USE datetime.utcnow() - SAME AS GROUPS.PY
+        now = datetime.utcnow()
 
         msg = {
             "conversation_id": conv_obj_id,
@@ -783,7 +729,6 @@ def on_send_message(data):
             "edited": False
         }
         
-        print(f"💾 Socket storing message with timestamp: {now.isoformat()}")
         res = db.messages.insert_one(msg)
 
         db.conversations.update_one(
@@ -829,8 +774,6 @@ def on_send_message(data):
                 
                 send_student_encouragement(str(user_id), analysis['level'], db)
                 
-                print(f"🧠 Mental health analysis: User {user_id}, Level: {analysis['level']}, Score: {analysis['score']}")
-                
         except Exception as e:
             print(f"⚠️ Mental health analysis failed: {e}")
             traceback.print_exc()
@@ -847,7 +790,6 @@ def on_send_message(data):
             "timestamp": now.isoformat()
         }
 
-        print(f"📤 Socket broadcasting message to room {str(conv_obj_id)}: {msg_out}")
         socketio.emit('new_message', msg_out, room=str(conv_obj_id))
         
     except Exception as e:
@@ -868,14 +810,13 @@ def on_typing(data):
         decoded = decode_token(token)
         user_id = str(decoded.get('sub') or decoded.get('identity'))
         
-        # socketio.emit('user_typing', {
-        #     'user_id': user_id,
-        #     'conversation_id': conv_id
-        # }, room=str(conv_id), skip_sid=request.sid)
+        socketio.emit('user_typing', {
+            'user_id': user_id,
+            'conversation_id': conv_id
+        }, room=str(conv_id), skip_sid=request.sid)
         
     except Exception as e:
         print(f"❌ Typing error: {e}")
-
 
 @socketio.on('stop_typing')
 def on_stop_typing(data):
@@ -890,10 +831,10 @@ def on_stop_typing(data):
         decoded = decode_token(token)
         user_id = str(decoded.get('sub') or decoded.get('identity'))
         
-        # socketio.emit('user_stop_typing', {
-        #     'user_id': user_id,
-        #     'conversation_id': conv_id
-        # }, room=str(conv_id), skip_sid=request.sid)
+        socketio.emit('user_stop_typing', {
+            'user_id': user_id,
+            'conversation_id': conv_id
+        }, room=str(conv_id), skip_sid=request.sid)
         
     except Exception as e:
         print(f"❌ Stop typing error: {e}")

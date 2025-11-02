@@ -7,7 +7,7 @@ Handles anonymous user discovery, chat initiation, and identity management
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from bson import ObjectId
-from datetime import datetime, timezone
+from datetime import datetime
 import uuid
 import traceback
 
@@ -30,7 +30,7 @@ def ensure_anon_id(user_id, db):
     # Generate new anonId
     anon_id = f"Anon{uuid.uuid4().hex[:8]}"
     
-    # Update user with anonId and default anonymous profile
+    # ✅ USE datetime.utcnow() - SAME AS groups.py
     db.users.update_one(
         {"user_id": user_id},
         {
@@ -38,9 +38,9 @@ def ensure_anon_id(user_id, db):
                 "anonId": anon_id,
                 "anonymousProfile": {
                     "tags": [],
-                    "role": "both",  # helper, seeker, both
-                    "status": "available",  # available, busy, invisible
-                    "lastActive": datetime.now(timezone.utc),
+                    "role": "both",
+                    "status": "available",
+                    "lastActive": datetime.utcnow(),
                     "bio": "",
                     "helpCount": 0,
                     "rating": 0,
@@ -57,12 +57,23 @@ def serialize_anonymous_user(user, hide_sensitive=True):
     """Convert user to anonymous profile dict"""
     profile = user.get("anonymousProfile", {})
     
+    # ✅ Handle lastActive properly
+    last_active = profile.get("lastActive")
+    if last_active is None:
+        last_active = datetime.utcnow()
+    
+    # Convert to ISO string
+    if isinstance(last_active, datetime):
+        last_active_iso = last_active.isoformat()
+    else:
+        last_active_iso = datetime.utcnow().isoformat()
+    
     result = {
         "anonId": user.get("anonId", "Unknown"),
         "tags": profile.get("tags", []),
         "role": profile.get("role", "both"),
         "status": profile.get("status", "available"),
-        "lastActive": profile.get("lastActive", datetime.now(timezone.utc)).isoformat(),
+        "lastActive": last_active_iso,
         "bio": profile.get("bio", ""),
         "rating": profile.get("rating", 0),
         "reviewCount": profile.get("reviewCount", 0)
@@ -102,7 +113,7 @@ def initialize_anonymous_profile():
             update_data["anonymousProfile.role"] = data["role"]
         
         if "bio" in data:
-            update_data["anonymousProfile.bio"] = data["bio"][:200]  # Max 200 chars
+            update_data["anonymousProfile.bio"] = data["bio"][:200]
         
         if "status" in data and data["status"] in ["available", "busy", "invisible"]:
             update_data["anonymousProfile.status"] = data["status"]
@@ -174,8 +185,8 @@ def discover_anonymous_peers():
         
         # Build query
         query = {
-            "user_id": {"$ne": user_id},  # Exclude self
-            "anonymousProfile.status": {"$in": ["available", "busy"]}  # Not invisible
+            "user_id": {"$ne": user_id},
+            "anonymousProfile.status": {"$in": ["available", "busy"]}
         }
         
         # Apply filters
@@ -194,7 +205,7 @@ def discover_anonymous_peers():
         # Serialize
         result = [serialize_anonymous_user(u) for u in users]
         
-        # Sort by status (available first) and lastActive
+        # Sort by status and lastActive
         result.sort(key=lambda x: (
             0 if x["status"] == "available" else 1,
             x["lastActive"]
@@ -257,8 +268,8 @@ def start_anonymous_conversation():
         my_anon_id = ensure_anon_id(user_id, db)
         their_anon_id = ensure_anon_id(target_user_id, db)
         
-        # Create anonymous conversation
-        now = datetime.now(timezone.utc)
+        # ✅ USE datetime.utcnow() - SAME AS groups.py
+        now = datetime.utcnow()
         conv = {
             "participants": [user_id, target_user_id],
             "participantsAnon": {
@@ -267,7 +278,7 @@ def start_anonymous_conversation():
             },
             "isAnonymous": True,
             "identityRevealed": False,
-            "revealRequests": [],  # Track who requested reveal
+            "revealRequests": [],
             "created_at": now,
             "last_message": "",
             "last_updated": now,
@@ -337,6 +348,9 @@ def request_identity_reveal():
         # Add user to reveal requests
         reveal_requests.append(user_id)
         
+        # ✅ USE datetime.utcnow()
+        now = datetime.utcnow()
+        
         # If both users requested, reveal identities
         if len(reveal_requests) >= 2:
             db.conversations.update_one(
@@ -344,7 +358,7 @@ def request_identity_reveal():
                 {
                     "$set": {
                         "identityRevealed": True,
-                        "revealedAt": datetime.now(timezone.utc)
+                        "revealedAt": now
                     }
                 }
             )
@@ -354,7 +368,7 @@ def request_identity_reveal():
                 "conversation_id": conv_obj_id,
                 "sender_id": "system",
                 "content": "🎭 Both users agreed to reveal identities. You can now see each other's real names.",
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": now,
                 "read_by": [],
                 "is_pinned": False,
                 "edited": False,
@@ -378,7 +392,7 @@ def request_identity_reveal():
                 "conversation_id": conv_obj_id,
                 "sender_id": "system",
                 "content": "🎭 One user requested to reveal identities. Both must agree to proceed.",
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": now,
                 "read_by": [],
                 "is_pinned": False,
                 "edited": False,
@@ -410,7 +424,7 @@ def rate_anonymous_user():
         
         data = request.get_json() or {}
         conv_id = data.get('conversation_id')
-        rating = data.get('rating')  # 1-5
+        rating = data.get('rating')
         feedback = data.get('feedback', '').strip()
         
         if not conv_id or not rating:
@@ -445,14 +459,14 @@ def rate_anonymous_user():
         if existing_rating:
             return jsonify({"success": False, "message": "Already rated this conversation"}), 400
         
-        # Store rating
+        # ✅ USE datetime.utcnow()
         rating_doc = {
             "conversation_id": str(conv_id),
             "rater_id": user_id,
             "rated_user_id": other_user_id,
             "rating": rating,
-            "feedback": feedback[:500],  # Max 500 chars
-            "created_at": datetime.now(timezone.utc)
+            "feedback": feedback[:500],
+            "created_at": datetime.utcnow()
         }
         
         db.anonymous_ratings.insert_one(rating_doc)
@@ -520,7 +534,7 @@ def report_anonymous_user():
         # Get reported user
         reported_user_id = [p for p in conv["participants"] if p != user_id][0]
         
-        # Store report
+        # ✅ USE datetime.utcnow()
         report_doc = {
             "report_id": str(uuid.uuid4()),
             "conversation_id": str(conv_id),
@@ -528,21 +542,21 @@ def report_anonymous_user():
             "reported_user_id": reported_user_id,
             "reason": reason,
             "details": details[:1000],
-            "status": "pending",  # pending, reviewed, resolved
-            "created_at": datetime.now(timezone.utc),
+            "status": "pending",
+            "created_at": datetime.utcnow(),
             "reviewed_at": None,
             "reviewed_by": None
         }
         
         db.anonymous_reports.insert_one(report_doc)
         
-        # Optionally: Auto-block if multiple reports
+        # Auto-block if multiple reports
         report_count = db.anonymous_reports.count_documents({
             "reported_user_id": reported_user_id,
             "status": "pending"
         })
         
-        if report_count >= 3:  # Auto-block after 3 reports
+        if report_count >= 3:
             db.users.update_one(
                 {"user_id": reported_user_id},
                 {"$set": {"anonymousProfile.status": "invisible"}}
@@ -616,12 +630,13 @@ def update_anonymous_status():
         if status not in ["available", "busy", "invisible"]:
             return jsonify({"success": False, "message": "Invalid status"}), 400
         
+        # ✅ USE datetime.utcnow()
         db.users.update_one(
             {"user_id": user_id},
             {
                 "$set": {
                     "anonymousProfile.status": status,
-                    "anonymousProfile.lastActive": datetime.now(timezone.utc)
+                    "anonymousProfile.lastActive": datetime.utcnow()
                 }
             }
         )
