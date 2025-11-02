@@ -128,6 +128,10 @@ def send_registration_confirmation_email(email, user_name, role):
 
 # ==================== STUDENT REGISTRATION ====================
 
+# In each registration function (student, teacher, others), add anonId field
+
+# Example for student registration - apply same fix to teacher and others routes
+
 @auth_bp.route('/register/student', methods=['POST'])
 def register_student():
     """Register a new student with email verification"""
@@ -171,6 +175,7 @@ def register_student():
             "university": data["university"],
             "year": data["year"],
             "field": data["field"],
+            "anonId": None,  # ✅ ADD THIS LINE - or generate a unique ID if needed
             "is_verified": False,
             "verification_token": verification_token,
             "token_expires": datetime.utcnow() + timedelta(hours=24),
@@ -197,6 +202,10 @@ def register_student():
         return jsonify({"error": "Registration failed. Please try again."}), 500
 
 
+# Apply the same fix to:
+# - register_teacher()
+# - register_others()
+# Add "anonId": None to the new_user dictionary in each function
 # ==================== TEACHER REGISTRATION ====================
 
 @auth_bp.route('/register/teacher', methods=['POST'])
