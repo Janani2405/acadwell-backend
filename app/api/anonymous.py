@@ -650,3 +650,233 @@ def update_anonymous_status():
     except Exception as e:
         print(f"❌ Error updating status: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+        # Add these new endpoints to backend/app/api/anonymous.py
+
+# ============ DELETE ANONYMOUS CONVERSATION ============
+
+@anonymous_bp.route('/conversation/<conv_id>/delete', methods=['DELETE'])
+@jwt_required()
+def delete_anonymous_conversation(conv_id):
+    """Delete an entire anonymous conversation and all its messages"""
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.db
+        
+        try:
+            conv_obj_id = ObjectId(conv_id)
+        except:
+            return jsonify({"success": False, "message": "Invalid conversation_id"}), 400
+        
+        # Verify user is participant
+        conv = db.conversations.find_one({
+            "_id": conv_obj_id,
+            "participants": user_id,
+            "isAnonymous": True
+        })
+        
+        if not conv:
+            return jsonify({"success": False, "message": "Conversation not found"}), 404
+        
+        # Delete all messages in this conversation
+        messages_deleted = db.messages.delete_many({"conversation_id": conv_obj_id})
+        
+        # Delete the conversation itself
+        db.conversations.delete_one({"_id": conv_obj_id})
+        
+        # Delete related ratings
+        db.anonymous_ratings.delete_many({"conversation_id": str(conv_id)})
+        
+        # Note: We keep reports for moderation purposes
+        
+        return jsonify({
+            "success": True,
+            "message": "Conversation deleted successfully",
+            "messages_deleted": messages_deleted.deleted_count
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error deleting conversation: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ============ RESET CONVERSATION TO ANONYMOUS ============
+
+@anonymous_bp.route('/conversation/<conv_id>/reset', methods=['POST'])
+@jwt_required()
+def reset_conversation_to_anonymous(conv_id):
+    """Reset a revealed conversation back to anonymous mode"""
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.db
+        
+        try:
+            conv_obj_id = ObjectId(conv_id)
+        except:
+            return jsonify({"success": False, "message": "Invalid conversation_id"}), 400
+        
+        # Verify user is participant
+        conv = db.conversations.find_one({
+            "_id": conv_obj_id,
+            "participants": user_id,
+            "isAnonymous": True
+        })
+        
+        if not conv:
+            return jsonify({"success": False, "message": "Conversation not found"}), 404
+        
+        # Check if identities were revealed
+        if not conv.get("identityRevealed"):
+            return jsonify({
+                "success": False,
+                "message": "Identities are not revealed yet"
+            }), 400
+        
+        # Reset to anonymous
+        now = datetime.utcnow()
+        db.conversations.update_one(
+            {"_id": conv_obj_id},
+            {
+                "$set": {
+                    "identityRevealed": False,
+                    "revealRequests": [],
+                    "resetAt": now
+                },
+                "$unset": {"revealedAt": ""}
+            }
+        )
+        
+        # Add system message
+        db.messages.insert_one({
+            "conversation_id": conv_obj_id,
+            "sender_id": "system",
+            "content": "🎭 Conversation has been reset to anonymous mode. Identities are now hidden again.",
+            "timestamp": now,
+            "read_by": [],
+            "is_pinned": False,
+            "edited": False,
+            "system": True
+        })
+        
+        return jsonify({
+            "success": True,
+            "message": "Conversation reset to anonymous successfully"
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error resetting conversation: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ============ GET ALL REPORTS (ADMIN) ============
+
+@anonymous_bp.route('/admin/reports', methods=['GET'])
+@jwt_required()
+def get_all_reports():
+    """Get all anonymous reports for admin review"""
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.db
+        
+        # Check if user is admin (add your admin check here)
+        user = db.users.find_one({"user_id": user_id})
+        if not user or user.get('role') != 'admin':
+            return jsonify({"success": False, "message": "Admin access required"}), 403
+        
+        # Get filter parameters
+        status = request.args.get('status', 'pending')  # pending, reviewed, resolved
+        
+        query = {}
+        if status != 'all':
+            query['status'] = status
+        
+        # Fetch reports
+        reports = list(db.anonymous_reports.find(query).sort("created_at", -1).limit(100))
+        
+        # Enrich with user info
+        result = []
+        for report in reports:
+            # Get reporter info
+            reporter = db.users.find_one({"user_id": report["reporter_id"]})
+            reported = db.users.find_one({"user_id": report["reported_user_id"]})
+            
+            result.append({
+                "report_id": report["report_id"],
+                "conversation_id": report["conversation_id"],
+                "reporter": {
+                    "user_id": report["reporter_id"],
+                    "name": reporter.get("name", "Unknown") if reporter else "Unknown",
+                    "anonId": reporter.get("anonId", "Unknown") if reporter else "Unknown"
+                },
+                "reported_user": {
+                    "user_id": report["reported_user_id"],
+                    "name": reported.get("name", "Unknown") if reported else "Unknown",
+                    "anonId": reported.get("anonId", "Unknown") if reported else "Unknown"
+                },
+                "reason": report["reason"],
+                "details": report["details"],
+                "status": report["status"],
+                "created_at": report["created_at"].isoformat(),
+                "reviewed_at": report.get("reviewed_at").isoformat() if report.get("reviewed_at") else None,
+                "reviewed_by": report.get("reviewed_by")
+            })
+        
+        return jsonify({
+            "success": True,
+            "reports": result,
+            "count": len(result)
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error fetching reports: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ============ UPDATE REPORT STATUS (ADMIN) ============
+
+@anonymous_bp.route('/admin/reports/<report_id>', methods=['PUT'])
+@jwt_required()
+def update_report_status(report_id):
+    """Update report status (admin only)"""
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.db
+        
+        # Check if user is admin
+        user = db.users.find_one({"user_id": user_id})
+        if not user or user.get('role') != 'admin':
+            return jsonify({"success": False, "message": "Admin access required"}), 403
+        
+        data = request.get_json() or {}
+        new_status = data.get('status')
+        
+        if new_status not in ['reviewed', 'resolved', 'dismissed']:
+            return jsonify({"success": False, "message": "Invalid status"}), 400
+        
+        # Update report
+        result = db.anonymous_reports.update_one(
+            {"report_id": report_id},
+            {
+                "$set": {
+                    "status": new_status,
+                    "reviewed_at": datetime.utcnow(),
+                    "reviewed_by": user_id
+                }
+            }
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({"success": False, "message": "Report not found"}), 404
+        
+        return jsonify({
+            "success": True,
+            "message": f"Report marked as {new_status}"
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error updating report: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(e)}), 500

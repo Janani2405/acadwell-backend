@@ -779,3 +779,180 @@ def get_content_stats():
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Failed to fetch stats', 'details': str(e)}), 500
+    
+    
+# Add these endpoints to backend/app/api/admin.py
+
+# ==================== ANONYMOUS REPORTS MANAGEMENT ====================
+
+@admin_bp.route('/anonymous/reports', methods=['GET'])
+@admin_required
+def get_anonymous_reports_admin():
+    """Get all anonymous reports for admin review"""
+    try:
+        db = current_app.db
+        
+        # Get filter parameters
+        status = request.args.get('status', 'pending')
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 50))
+        
+        query = {}
+        if status != 'all':
+            query['status'] = status
+        
+        # Fetch reports
+        skip = (page - 1) * limit
+        reports = list(db.anonymous_reports.find(query)
+                      .sort("created_at", -1)
+                      .skip(skip)
+                      .limit(limit))
+        
+        total = db.anonymous_reports.count_documents(query)
+        
+        # Enrich with user info
+        result = []
+        for report in reports:
+            # Get reporter info
+            reporter = db.users.find_one({"user_id": report["reporter_id"]})
+            reported = db.users.find_one({"user_id": report["reported_user_id"]})
+            
+            result.append({
+                "report_id": report["report_id"],
+                "conversation_id": report["conversation_id"],
+                "reporter": {
+                    "user_id": report["reporter_id"],
+                    "name": reporter.get("name", "Unknown") if reporter else "Unknown",
+                    "anonId": reporter.get("anonId", "Unknown") if reporter else "Unknown"
+                },
+                "reported_user": {
+                    "user_id": report["reported_user_id"],
+                    "name": reported.get("name", "Unknown") if reported else "Unknown",
+                    "anonId": reported.get("anonId", "Unknown") if reported else "Unknown"
+                },
+                "reason": report["reason"],
+                "details": report["details"],
+                "status": report["status"],
+                "created_at": report["created_at"].isoformat(),
+                "reviewed_at": report.get("reviewed_at").isoformat() if report.get("reviewed_at") else None,
+                "reviewed_by": report.get("reviewed_by")
+            })
+        
+        print(f"✅ Fetched {len(result)} anonymous reports (status: {status})")
+        
+        return jsonify({
+            'reports': result,
+            'pagination': {
+                'page': page,
+                'limit': limit,
+                'total': total,
+                'pages': (total + limit - 1) // limit
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error fetching anonymous reports: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to fetch reports', 'details': str(e)}), 500
+
+
+@admin_bp.route('/anonymous/reports/<report_id>', methods=['PUT'])
+@admin_required
+def update_anonymous_report_status_admin(report_id):
+    """Update report status (admin only)"""
+    try:
+        admin_id = get_jwt_identity()
+        db = current_app.db
+        
+        data = request.get_json() or {}
+        new_status = data.get('status')
+        
+        if new_status not in ['reviewed', 'resolved', 'dismissed']:
+            return jsonify({'error': 'Invalid status'}), 400
+        
+        # Update report
+        result = db.anonymous_reports.update_one(
+            {"report_id": report_id},
+            {
+                "$set": {
+                    "status": new_status,
+                    "reviewed_at": datetime.utcnow(),
+                    "reviewed_by": admin_id
+                }
+            }
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({'error': 'Report not found'}), 404
+        
+        # Log admin activity
+        db.admin_activity_logs.insert_one({
+            'admin_id': admin_id,
+            'action': f'update_anonymous_report_{new_status}',
+            'target_report_id': report_id,
+            'timestamp': datetime.utcnow(),
+            'ip_address': request.remote_addr
+        })
+        
+        print(f"✅ Anonymous report updated by admin: {report_id} -> {new_status}")
+        
+        return jsonify({
+            'message': f'Report marked as {new_status}',
+            'report_id': report_id,
+            'status': new_status
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error updating anonymous report: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to update report', 'details': str(e)}), 500
+
+
+@admin_bp.route('/anonymous/reports/stats', methods=['GET'])
+@admin_required
+def get_anonymous_reports_stats():
+    """Get anonymous reports statistics"""
+    try:
+        db = current_app.db
+        
+        total_reports = db.anonymous_reports.count_documents({})
+        pending_reports = db.anonymous_reports.count_documents({'status': 'pending'})
+        reviewed_reports = db.anonymous_reports.count_documents({'status': 'reviewed'})
+        resolved_reports = db.anonymous_reports.count_documents({'status': 'resolved'})
+        dismissed_reports = db.anonymous_reports.count_documents({'status': 'dismissed'})
+        
+        # Recent reports (last 7 days)
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        recent_reports = db.anonymous_reports.count_documents({
+            'created_at': {'$gte': week_ago}
+        })
+        
+        # Most common reasons
+        reasons_pipeline = [
+            {'$group': {'_id': '$reason', 'count': {'$sum': 1}}},
+            {'$sort': {'count': -1}},
+            {'$limit': 5}
+        ]
+        reasons = list(db.anonymous_reports.aggregate(reasons_pipeline))
+        
+        stats = {
+            'total': total_reports,
+            'pending': pending_reports,
+            'reviewed': reviewed_reports,
+            'resolved': resolved_reports,
+            'dismissed': dismissed_reports,
+            'recent_7_days': recent_reports,
+            'top_reasons': [{'reason': r['_id'], 'count': r['count']} for r in reasons]
+        }
+        
+        print(f"✅ Anonymous reports stats: {stats}")
+        
+        return jsonify(stats), 200
+        
+    except Exception as e:
+        print(f"❌ Error fetching anonymous reports stats: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to fetch stats', 'details': str(e)}), 500
