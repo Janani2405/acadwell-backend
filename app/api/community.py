@@ -276,6 +276,10 @@ def get_posts():
         for post in posts:
             author_user = db.users.find_one({"user_id": post['author_id']})
             
+            # Use anonymous_id if post is anonymous
+            display_name = post.get('anonymous_id', f"Anon_{str(post['author_id'])[-6:]}") if post.get('is_anonymous') else (author_user['name'] if author_user else 'Unknown')
+            display_role = author_user['role'] if author_user and not post.get('is_anonymous') else 'student'
+            
             formatted_post = {
                 'post_id': str(post['post_id']),
                 'title': post['title'],
@@ -284,8 +288,8 @@ def get_posts():
                 'tags': post.get('tags', []),
                 'is_anonymous': post.get('is_anonymous', False),
                 'author_id': str(post['author_id']),
-                'author_name': author_user['name'] if author_user else 'Unknown',
-                'author_role': author_user['role'] if author_user else 'student',
+                'author_name': display_name,
+                'author_role': display_role,
                 'reply_count': post.get('reply_count', 0),
                 'like_count': post.get('like_count', 0),
                 'view_count': post.get('view_count', 0),
@@ -328,13 +332,18 @@ def create_post():
         db = current_app.db
         post_id = str(uuid.uuid4())
         
+        # Generate anonymous_id if posting anonymously
+        is_anonymous = data.get('is_anonymous', False)
+        anonymous_id = f"Anon_{str(uuid.uuid4())[:8]}" if is_anonymous else None
+        
         new_post = {
             'post_id': post_id,
             'title': data['title'],
             'description': data['description'],
             'category': data['category'],
             'tags': data['tags'],
-            'is_anonymous': data.get('is_anonymous', False),
+            'is_anonymous': is_anonymous,
+            'anonymous_id': anonymous_id,
             'author_id': current_user_id,
             'reply_count': 0,
             'like_count': 0,
@@ -429,15 +438,24 @@ def get_post_detail(post_id):
         
         author = db.users.find_one({'user_id': post['author_id']})
         
+        # Use anonymous_id if post is anonymous
+        post_display_name = post.get('anonymous_id', f"Anon_{str(post['author_id'])[-6:]}") if post.get('is_anonymous') else (author['name'] if author else 'Unknown')
+        post_display_role = author['role'] if author and not post.get('is_anonymous') else 'student'
+        
         # Get replies with nested structure
         replies = list(db.community_replies.find({
             'post_id': post_id,
+            'parent_reply_id': None,  # Only top-level replies
             'is_deleted': {'$ne': True}
         }).sort('created_at', 1))
         
         formatted_replies = []
         for reply in replies:
             reply_author = db.users.find_one({'user_id': reply['author_id']})
+            
+            # Use anonymous_id if reply is anonymous
+            reply_display_name = reply.get('anonymous_id', f"Anon_{str(reply['author_id'])[-6:]}") if reply.get('is_anonymous') else (reply_author['name'] if reply_author else 'Unknown')
+            reply_display_role = reply_author['role'] if reply_author and not reply.get('is_anonymous') else 'student'
             
             # Get nested replies
             nested_replies = list(db.community_replies.find({
@@ -448,12 +466,17 @@ def get_post_detail(post_id):
             formatted_nested = []
             for nested in nested_replies:
                 nested_author = db.users.find_one({'user_id': nested['author_id']})
+                
+                # Use anonymous_id if nested reply is anonymous
+                nested_display_name = nested.get('anonymous_id', f"Anon_{str(nested['author_id'])[-6:]}") if nested.get('is_anonymous') else (nested_author['name'] if nested_author else 'Unknown')
+                nested_display_role = nested_author['role'] if nested_author and not nested.get('is_anonymous') else 'student'
+                
                 formatted_nested.append({
                     'reply_id': str(nested['reply_id']),
                     'content': nested['content'],
                     'author_id': str(nested['author_id']),
-                    'author_name': nested_author['name'] if nested_author else 'Unknown',
-                    'author_role': nested_author['role'] if nested_author else 'student',
+                    'author_name': nested_display_name,
+                    'author_role': nested_display_role,
                     'is_anonymous': nested.get('is_anonymous', False),
                     'like_count': nested.get('like_count', 0),
                     'dislike_count': nested.get('dislike_count', 0),
@@ -465,8 +488,8 @@ def get_post_detail(post_id):
                 'reply_id': str(reply['reply_id']),
                 'content': reply['content'],
                 'author_id': str(reply['author_id']),
-                'author_name': reply_author['name'] if reply_author else 'Unknown',
-                'author_role': reply_author['role'] if reply_author else 'student',
+                'author_name': reply_display_name,
+                'author_role': reply_display_role,
                 'is_anonymous': reply.get('is_anonymous', False),
                 'like_count': reply.get('like_count', 0),
                 'dislike_count': reply.get('dislike_count', 0),
@@ -486,8 +509,8 @@ def get_post_detail(post_id):
             'tags': post.get('tags', []),
             'is_anonymous': post.get('is_anonymous', False),
             'author_id': str(post['author_id']),
-            'author_name': author['name'] if author else 'Unknown',
-            'author_role': author['role'] if author else 'student',
+            'author_name': post_display_name,
+            'author_role': post_display_role,
             'reply_count': post.get('reply_count', 0),
             'like_count': post.get('like_count', 0),
             'view_count': post.get('view_count', 0),
@@ -594,13 +617,19 @@ def create_reply(post_id):
             return jsonify({'error': 'Post not found'}), 404
         
         reply_id = str(uuid.uuid4())
+        
+        # Generate anonymous_id if replying anonymously
+        is_anonymous = data.get('is_anonymous', False)
+        anonymous_id = f"Anon_{str(uuid.uuid4())[:8]}" if is_anonymous else None
+        
         new_reply = {
             'reply_id': reply_id,
             'post_id': post_id,
             'parent_reply_id': data.get('parent_reply_id'),  # For nested replies
             'content': data['content'],
             'author_id': current_user_id,
-            'is_anonymous': data.get('is_anonymous', False),
+            'is_anonymous': is_anonymous,
+            'anonymous_id': anonymous_id,
             'like_count': 0,
             'dislike_count': 0,
             'is_accepted': False,
@@ -660,14 +689,16 @@ def create_reply(post_id):
         # Create notification for post author
         if str(post['author_id']) != str(current_user_id):
             author_user = db.users.find_one({'user_id': current_user_id})
-            author_name = author_user['name'] if author_user else 'Someone'
+            
+            # Use anonymous ID if replying anonymously
+            author_display = anonymous_id if is_anonymous else (author_user['name'] if author_user else 'Someone')
             
             create_notification(
                 db,
                 post['author_id'],
                 'reply',
                 'New Reply on Your Post',
-                f"{author_name} replied to your post: {post['title'][:50]}...",
+                f"{author_display} replied to your post: {post['title'][:50]}...",
                 post_id
             )
         
@@ -887,14 +918,10 @@ def dislike_reply(reply_id):
         return jsonify({'error': 'Failed to dislike reply'}), 500
 
 
-
 @community_bp.route('/replies/<reply_id>/accept', methods=['POST'])
 @jwt_required()
 def accept_reply(reply_id):
-    """
-    Accept a reply as the answer
-    ✨ UPDATED: Now sends email notification to answer author
-    """
+    """Accept a reply as the answer"""
     try:
         current_user_id = get_jwt_identity()
         db = current_app.db
@@ -936,9 +963,8 @@ def accept_reply(reply_id):
             award_points(reply_author_id, 10, 'Answer accepted', db)
             increment_community_stat(reply_author_id, 'accepted_answers', db)
             
-            # ⭐ NEW: Send notification with email using NotificationManager
+            # Send notification with email using NotificationManager
             try:
-                from app.utils.notification_manager import create_notification_manager
                 notif_manager = create_notification_manager(db)
                 
                 notif_manager.send_answer_accepted_notification(
@@ -969,8 +995,6 @@ def accept_reply(reply_id):
     except Exception as e:
         print(f"❌ Error accepting reply: {e}")
         return jsonify({'error': 'Failed to accept reply'}), 500
-
-
 
 
 @community_bp.route('/posts/<post_id>/report', methods=['POST'])
